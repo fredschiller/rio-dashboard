@@ -4120,7 +4120,7 @@ function initMsal(){
     auth: {
       clientId: AZURE_CLIENT_ID,
       authority: AZURE_AUTHORITY,
-      redirectUri: 'https://dashboardrio.netlify.app/index.html'
+      redirectUri: window.location.origin + window.location.pathname
     },
     cache: { cacheLocation: 'sessionStorage', storeAuthStateInCookie: false }
   });

@@ -997,8 +997,10 @@ function renderMetaHero(){
       let s=0; [...reps].forEach(r=>{ if(brp[r]&&brp[r].mes) s+=brp[r].mes.receita||0; }); return s;
     }
     if(tab==='concierge'){
-      if(repIsAll()) return (conc.monthly||[]).filter(r=>r.periodo===mesAt).reduce((s,r)=>s+r.receita,0);
-      return (conc.by_rep_monthly||[]).filter(r=>r.periodo===mesAt&&repMatch(r.rep)).reduce((s,r)=>s+r.receita,0);
+      // Same source as Concierge tab KPI cards: VendasTT filtered to Concierge canal
+      const mbcr=(bc.monthly_by_canal_rep||[]).filter(r=>r.periodo===mesAt&&r.canal==='Concierge');
+      if(repIsAll()) return mbcr.reduce((s,r)=>s+r.receita,0);
+      return mbcr.filter(r=>repMatch(r.rep)).reduce((s,r)=>s+r.receita,0);
     }
     if(tab==='b2bcs'||tab==='medicos'){
       if(repIsAll()) return (bc.monthly||[]).filter(r=>r.periodo===mesAt).reduce((s,r)=>s+r.receita,0);
@@ -1034,9 +1036,10 @@ function renderMetaHero(){
       const daily = D.daily && D.daily.rows ? D.daily.rows : [];
       realizado = daily.filter(r=>r.data>=dpStart&&r.data<=dpEnd&&repMatch(r.rep)).reduce((s,r)=>s+(r.receita||0),0);
     } else if(tab==='concierge'){
-      const dr = conc.daily_by_rep||[];
-      if(repIsAll()) realizado = (conc.daily||[]).filter(d=>d.dia>=dpStart&&d.dia<=dpEnd).reduce((s,d)=>s+d.receita,0);
-      else realizado = dr.filter(d=>d.dia>=dpStart&&d.dia<=dpEnd&&repMatch(d.rep)).reduce((s,d)=>s+d.receita,0);
+      // Same source as Concierge tab KPI cards: VendasTT daily_by_canal_rep filtered to Concierge
+      const dcr=(bc.daily_by_canal_rep||[]).filter(d=>d.dia>=dpStart&&d.dia<=dpEnd&&d.canal==='Concierge');
+      if(repIsAll()) realizado = dcr.reduce((s,d)=>s+d.receita,0);
+      else realizado = dcr.filter(d=>repMatch(d.rep)).reduce((s,d)=>s+d.receita,0);
     } else if(tab==='b2bcs'||tab==='medicos'){
       if(repIsAll()) realizado = (bc.daily||[]).filter(d=>d.dia>=dpStart&&d.dia<=dpEnd).reduce((s,d)=>s+d.receita,0);
       else realizado = (bc.daily_by_rep||[]).filter(d=>d.dia>=dpStart&&d.dia<=dpEnd&&repMatch(d.rep)).reduce((s,d)=>s+d.receita,0);
@@ -1081,8 +1084,10 @@ function renderMetaHero(){
     } else {
       // Sum all months from the tab's source
       if(tab==='concierge'){
-        if(repIsAll()) realizado = conc.total_receita||0;
-        else realizado = (conc.by_rep||[]).filter(r=>repMatch(r.Representante||r.rep)).reduce((s,r)=>s+r.receita,0);
+        // Same source as Concierge tab KPI cards: VendasTT monthly_by_canal_rep
+        const mbcr=(bc.monthly_by_canal_rep||[]).filter(r=>r.canal==='Concierge');
+        if(repIsAll()) realizado = mbcr.reduce((s,r)=>s+r.receita,0);
+        else realizado = mbcr.filter(r=>repMatch(r.rep)).reduce((s,r)=>s+r.receita,0);
       } else if(tab==='b2bcs'||tab==='medicos'){
         if(repIsAll()) realizado = bc.total_receita||0;
         else realizado = (bc.by_rep||[]).filter(r=>repMatch(r.rep)).reduce((s,r)=>s+r.receita,0);

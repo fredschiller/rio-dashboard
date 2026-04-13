@@ -547,6 +547,20 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
     <div class="kpi-row kpi-6" id="medicos-kpis"></div>
     <div id="insights-medicos"></div>
 
+    <!-- Alertas de inatividade (top 10 médicos) -->
+    <div class="panel">
+      <div class="ph">
+        <div class="pt">Médicos com alerta de inatividade</div>
+        <div class="pn" id="medicos-inat-hint">—</div>
+      </div>
+      <div class="tbl-scroll" style="max-height:340px">
+        <table class="tbl">
+          <thead><tr><th>Médico</th><th class="d">Rep</th><th class="r">Dias sem compra</th><th class="r">Status</th></tr></thead>
+          <tbody id="medicos-inat-list"></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Evolução mensal + Peso no faturamento (layout 2:1) -->
     <div class="g21">
       <div class="panel">
@@ -993,7 +1007,8 @@ function renderMetaHero(){
   // Helper: get realizado from correct source per tab
   function getRealizadoMes(){
     if(tab==='geral'){
-      if(repIsAll()) return c.receita_total_mes||0;
+      // Same source as KPI card (getSlice): by_rep_period
+      if(repIsAll()) return (brp['Todos']&&brp['Todos'].mes ? brp['Todos'].mes.receita : 0);
       let s=0; [...reps].forEach(r=>{ if(brp[r]&&brp[r].mes) s+=brp[r].mes.receita||0; }); return s;
     }
     if(tab==='concierge'){
@@ -1065,7 +1080,8 @@ function renderMetaHero(){
   } else if(period==='semana'){
     // Semana: for non-geral tabs, approximate as monthly / weeks elapsed
     if(tab==='geral'){
-      if(repIsAll()) realizado = c.receita_semana||0;
+      // Same source as KPI card (getSlice): by_rep_period
+      if(repIsAll()) realizado = (brp['Todos']&&brp['Todos'].semana ? brp['Todos'].semana.receita : 0);
       else [...reps].forEach(r=>{ if(brp[r]&&brp[r].semana) realizado+=brp[r].semana.receita||0; });
     } else {
       // Use daily data for exact week
@@ -2356,10 +2372,35 @@ function renderPesoMedico(){
 let _rankSort={col:'receita',asc:false};
 function renderMedicosTab(){
   renderMedicosKPIs();
+  renderMedicosInatividade();
   populateMedicoSelect();
   renderMedicoEvo();
   renderPesoMedico();
   renderRankMedico();
+}
+
+function renderMedicosInatividade(){
+  const el=document.getElementById('medicos-inat-list');
+  const hint=document.getElementById('medicos-inat-hint');
+  if(!el)return;
+  const alertas=(D.current&&D.current.alertas)||[];
+  let inat=alertas.filter(a=>a.tipo==='inativo_30'||a.tipo==='inativo_90');
+  if(!repIsAll()) inat=inat.filter(a=>repMatch(a.representante));
+  // Sort by days descending (worst first) and take top 10
+  inat.sort((a,b)=>(b.dias||0)-(a.dias||0));
+  const top=inat.slice(0,10);
+  if(hint) hint.textContent=inat.length>0?`${inat.length} no total${top.length<inat.length?` · mostrando top ${top.length}`:''}`:'nenhum alerta';
+  if(!top.length){
+    el.innerHTML='<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px;font-size:10px">Nenhum médico com alerta de inatividade.</td></tr>';
+    return;
+  }
+  el.innerHTML=top.map(a=>{
+    const isVermelho=a.tipo==='inativo_90';
+    const badgeCls=isVermelho?'down':'neu';
+    const label=isVermelho?'90+ dias':'30-89 dias';
+    const repCls=PI[a.representante]||'pL';
+    return `<tr><td style="font-weight:500;cursor:pointer" onclick="openModal('${esc(a.medico)}')">${esc(a.medico)}</td><td class="d"><span class="pill ${repCls}">${a.representante||'—'}</span></td><td class="r" style="font-weight:600">${a.dias||0}</td><td class="r"><span class="bdg ${badgeCls}">${label}</span></td></tr>`;
+  }).join('');
 }
 
 function renderMedicosKPIs(){
@@ -2419,7 +2460,7 @@ function renderMedicosKPIs(){
 
   const el=document.getElementById('medicos-kpis');
   if(!el)return;
-  el.innerHTML=kc(curMedicos.size,'M\u00e9dicos ativos',momMed,'var(--blue)')+kc(R(curRec),'Receita B2B',momRec,'var(--green)')+kc(curPres,'Prescri\u00e7\u00f5es',momPres,'var(--gold)')+kc(R(ticketCur),'Ticket m\u00e9dio/presc.',momTk,'var(--violet)')+kc(topMedName.length>18?topMedName.slice(0,16)+'\u2026':topMedName,'Top m\u00e9dico',null,'var(--green)')+kc(inat,'Alertas inatividade',null,'var(--red)');
+  el.innerHTML=kc(R(curRec),'Receita B2B',momRec,'var(--green)')+kc(curMedicos.size,'M\u00e9dicos ativos',momMed,'var(--blue)')+kc(curPres,'Prescri\u00e7\u00f5es',momPres,'var(--gold)')+kc(R(ticketCur),'Ticket m\u00e9dio/presc.',momTk,'var(--violet)')+kc(topMedName.length>18?topMedName.slice(0,16)+'\u2026':topMedName,'Top m\u00e9dico',null,'var(--green)')+kc(inat,'Alertas inatividade',null,'var(--red)');
 }
 
 function sortRankMedico(col){

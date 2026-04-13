@@ -23,6 +23,7 @@
 html{font-size:12px;}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.4;padding:10px;min-height:100vh;}
 .shell{display:grid;gap:12px;max-width:1600px;margin:0 auto;}
+.shell > div{min-width:0;}
 [id^="section-"]{display:flex;flex-direction:column;gap:12px;}
 [id$="-container"]{display:flex;flex-direction:column;gap:12px;}
 /* HEADER */
@@ -3529,10 +3530,12 @@ function renderB2BCS(){
     if(repIsAll()){
       kpiReceita=wbr.reduce((s,r)=>s+r.receita,0);
       kpiVendas=wbr.reduce((s,r)=>s+r.vendas,0);
+      kpiProdutos=wbr.reduce((s,r)=>s+(r.produtos||0),0);
     } else {
       const sel=wbr.filter(r=>repMatch(r.rep));
       kpiReceita=sel.reduce((s,r)=>s+r.receita,0);
       kpiVendas=sel.reduce((s,r)=>s+r.vendas,0);
+      kpiProdutos=sel.reduce((s,r)=>s+(r.produtos||0),0);
     }
     kpiTicket=kpiVendas>0?kpiReceita/kpiVendas:0;
     kpiLabel=fW(sem);

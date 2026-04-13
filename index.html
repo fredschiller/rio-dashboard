@@ -3541,10 +3541,12 @@ function renderB2BCS(){
       kpiReceita=bc.total_receita;
       kpiVendas=bc.total_vendas;
       kpiTicket=bc.ticket_medio;
+      kpiProdutos=(bc.by_rep||[]).reduce((s,r)=>s+(r.produtos||0),0);
     } else {
       const sel=(bc.by_rep||[]).filter(r=>repMatch(r.rep));
       kpiReceita=sel.reduce((s,r)=>s+r.receita,0);
       kpiVendas=sel.reduce((s,r)=>s+r.vendas,0);
+      kpiProdutos=sel.reduce((s,r)=>s+(r.produtos||0),0);
       kpiTicket=kpiVendas>0?kpiReceita/kpiVendas:0;
     }
     kpiLabel='acumulado';

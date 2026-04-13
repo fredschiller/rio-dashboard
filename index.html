@@ -547,20 +547,6 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
     <div class="kpi-row kpi-6" id="medicos-kpis"></div>
     <div id="insights-medicos"></div>
 
-    <!-- Alertas de inatividade (top 10 médicos) -->
-    <div class="panel">
-      <div class="ph">
-        <div class="pt">Médicos com alerta de inatividade</div>
-        <div class="pn" id="medicos-inat-hint">—</div>
-      </div>
-      <div class="tbl-scroll" style="max-height:340px">
-        <table class="tbl">
-          <thead><tr><th>Médico</th><th class="d">Rep</th><th class="r">Dias sem compra</th><th class="r">Status</th></tr></thead>
-          <tbody id="medicos-inat-list"></tbody>
-        </table>
-      </div>
-    </div>
-
     <!-- Evolução mensal + Peso no faturamento (layout 2:1) -->
     <div class="g21">
       <div class="panel">
@@ -600,6 +586,20 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
       </div>
     </div>
 
+    <!-- Alertas de inatividade (top 10 médicos) -->
+    <div class="panel">
+      <div class="ph">
+        <div class="pt">Médicos com alerta de inatividade</div>
+        <div class="pn" id="medicos-inat-hint">—</div>
+      </div>
+      <div class="tbl-scroll" style="max-height:340px">
+        <table class="tbl">
+          <thead><tr><th>Médico</th><th class="d">Rep</th><th class="r">Dias sem compra</th><th class="r">Status</th></tr></thead>
+          <tbody id="medicos-inat-list"></tbody>
+        </table>
+      </div>
+    </div>
+
   </div><!-- /section-medicos -->
 
   <!-- ══ PAINEL EVOLUÇÃO POR PRODUTO (global — aparece em todas as abas) ══ -->
@@ -618,6 +618,19 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
         </div>
         <div id="sku-ms-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;background:var(--bg2);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);max-height:220px;overflow-y:auto" onclick="event.stopPropagation()">
           <div id="sku-ms-list" style="padding:4px 0"></div>
+        </div>
+      </div>
+      <div id="med-ms-wrap" style="position:relative;flex:1;min-width:180px;max-width:340px">
+        <div id="med-ms-trigger" onclick="toggleMedDropdown()" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--muted);transition:border-color .15s">
+          <span id="med-ms-placeholder">Todos os médicos</span>
+          <span id="med-ms-count" style="font-size:9px;color:var(--blue);font-weight:600;margin-left:8px;white-space:nowrap"></span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-left:4px"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div id="med-ms-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;background:var(--bg2);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);max-height:280px;overflow-y:auto" onclick="event.stopPropagation()">
+          <div style="padding:6px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg2);z-index:2">
+            <input id="med-ms-search" type="text" placeholder="Buscar médico..." oninput="renderMedMsList()" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:10px;color:var(--fg);outline:none">
+          </div>
+          <div id="med-ms-list" style="padding:4px 0"></div>
         </div>
       </div>
       <div style="display:flex;gap:4px">
@@ -2053,10 +2066,21 @@ function isSkuExcluded(name){
 }
 let _skuEvoSelected=new Set(); // selected product names
 let _skuEvoAll=[]; // all available products for current context
+let _skuEvoMedicos=new Set(); // selected medicos (empty = all)
+let _skuEvoMedicosAll=[]; // all available medicos
+let _medDropdownOpen=false;
 
 function buildSkuEvoData(){
   let raw;
-  if(currentTab==='medicos'){
+  // When user selected médicos in the sku-evo filter, always override the data
+  // source to sku_monthly_medico so we can show per-doctor evolution regardless
+  // of which tab we're currently viewing.
+  if(_skuEvoMedicos.size>0){
+    const smm=(D.b2b_canais&&D.b2b_canais.sku_monthly_medico)||[];
+    let rows=smm.filter(d=>_skuEvoMedicos.has(d.medico));
+    if(!repIsAll()) rows=rows.filter(d=>repMatch(d.rep));
+    raw=rows.map(r=>({dia:r.periodo+'-01',canal:'B2B',rep:r.rep,sku:r.sku,receita:r.receita,volume:r.volume}));
+  } else if(currentTab==='medicos'){
     const smm=(D.b2b_canais&&D.b2b_canais.sku_monthly_medico)||[];
     let rows=smm;
     if(!repIsAll()) rows=rows.filter(d=>repMatch(d.rep));
@@ -2074,6 +2098,93 @@ function buildSkuEvoData(){
   }
   // Unify names + exclude travel/presente
   return raw.filter(d=>!isSkuExcluded(d.sku)).map(d=>({...d,sku:unifySku(d.sku)}));
+}
+
+function populateMedMsList(){
+  // Build the list of available médicos from sku_monthly_medico, filtered by rep
+  const smm=(D.b2b_canais&&D.b2b_canais.sku_monthly_medico)||[];
+  let rows=smm;
+  if(!repIsAll()) rows=rows.filter(d=>repMatch(d.rep));
+  const meds=[...new Set(rows.map(r=>r.medico).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  _skuEvoMedicosAll=meds;
+  // Drop any previously-selected médico that is no longer available
+  _skuEvoMedicos=new Set([..._skuEvoMedicos].filter(m=>meds.includes(m)));
+  renderMedMsUI();
+}
+
+function toggleMedDropdown(){
+  _medDropdownOpen=!_medDropdownOpen;
+  const dd=document.getElementById('med-ms-dropdown');
+  const tr=document.getElementById('med-ms-trigger');
+  if(dd)dd.style.display=_medDropdownOpen?'block':'none';
+  if(tr)tr.style.borderColor=_medDropdownOpen?'var(--blue)':'var(--border)';
+  if(_medDropdownOpen)renderMedMsList();
+}
+
+function closeMedDropdown(){
+  _medDropdownOpen=false;
+  const dd=document.getElementById('med-ms-dropdown');
+  const tr=document.getElementById('med-ms-trigger');
+  if(dd)dd.style.display='none';
+  if(tr)tr.style.borderColor='var(--border)';
+}
+
+document.addEventListener('click',function(e){
+  if(_medDropdownOpen){
+    const w=document.getElementById('med-ms-wrap');
+    if(w && !w.contains(e.target)) closeMedDropdown();
+  }
+});
+
+function renderMedMsUI(){
+  renderMedMsList();
+  const cnt=document.getElementById('med-ms-count');
+  if(cnt) cnt.textContent=_skuEvoMedicos.size>0 ? _skuEvoMedicos.size+' de '+_skuEvoMedicosAll.length : '';
+  const ph=document.getElementById('med-ms-placeholder');
+  if(ph){
+    if(_skuEvoMedicos.size===0) ph.textContent='Todos os médicos';
+    else if(_skuEvoMedicos.size===1) ph.textContent=[..._skuEvoMedicos][0];
+    else ph.textContent=_skuEvoMedicos.size+' médicos selecionados';
+  }
+}
+
+function renderMedMsList(){
+  const el=document.getElementById('med-ms-list');
+  if(!el)return;
+  const searchEl=document.getElementById('med-ms-search');
+  const q=searchEl?searchEl.value.trim().toLowerCase():'';
+  const filtered=q?_skuEvoMedicosAll.filter(m=>m.toLowerCase().includes(q)):_skuEvoMedicosAll;
+  if(!filtered.length){
+    el.innerHTML='<div style="padding:10px;font-size:10px;color:var(--muted);text-align:center">Nenhum médico encontrado.</div>';
+    return;
+  }
+  // "Clear all" row on top when something is selected
+  let html='';
+  if(_skuEvoMedicos.size>0 && !q){
+    html+=`<div onclick="clearSkuEvoMedicos()" style="padding:5px 10px;cursor:pointer;font-size:10px;color:var(--muted);border-bottom:1px solid var(--border)" onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background='transparent'">✕ Limpar seleção</div>`;
+  }
+  html+=filtered.map(m=>{
+    const on=_skuEvoMedicos.has(m);
+    const escaped=esc(m).replace(/'/g,"\\'");
+    return`<div onclick="toggleSkuEvoMedico('${escaped}')" style="display:flex;align-items:center;gap:8px;padding:5px 10px;cursor:pointer;font-size:10px;color:${on?'#fff':'var(--muted)'}" onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background='transparent'"><div style="width:14px;height:14px;border-radius:3px;border:1.5px solid var(--blue);background:${on?'var(--blue)':'transparent'};flex-shrink:0;display:flex;align-items:center;justify-content:center">${on?'<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0a0b0a" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>':''}</div><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m)}</span></div>`;
+  }).join('');
+  el.innerHTML=html;
+}
+
+function toggleSkuEvoMedico(medico){
+  if(_skuEvoMedicos.has(medico)) _skuEvoMedicos.delete(medico);
+  else _skuEvoMedicos.add(medico);
+  renderMedMsUI();
+  // Rebuild SKU list + chart based on new medico filter
+  populateSkuEvoPills();
+  renderSkuEvoChart();
+}
+
+function clearSkuEvoMedicos(){
+  _skuEvoMedicos.clear();
+  renderMedMsUI();
+  populateSkuEvoPills();
+  renderSkuEvoChart();
 }
 
 let _skuDropdownOpen=false;
@@ -2220,6 +2331,9 @@ function renderSkuEvoChart(){
   if(hint){
     let tabLbl=currentTab==='concierge'?'Concierge':currentTab==='b2bcs'?'B2B (C+S)':currentTab==='b2btotal'?'B2B Total':currentTab==='varejo'?'Varejo':currentTab==='medicos'?'B2B':'Todos os canais';
     if(currentTab==='medicos'){const sel=document.getElementById('medico-select');if(sel&&sel.value!=='Todos')tabLbl=sel.value;}
+    // Override with multi-select médico filter when active
+    if(_skuEvoMedicos.size===1) tabLbl=[..._skuEvoMedicos][0];
+    else if(_skuEvoMedicos.size>1) tabLbl=_skuEvoMedicos.size+' médicos';
     hint.textContent='Volume mensal \u2014 '+tabLbl;
   }
 
@@ -2242,6 +2356,7 @@ function renderSkuEvoChart(){
 }
 
 function renderSkuEvo(){
+  populateMedMsList();
   populateSkuEvoPills();
   renderSkuEvoChart();
 }

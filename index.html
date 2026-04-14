@@ -2093,8 +2093,16 @@ const SKU_EVO_COLORS=['#7efbb3','#f5c97a','#c4a8f5','#f5877a','#7ab8f5','#e0e0e0
 
 // Unification map: merge variant names into canonical product name
 const SKU_UNIFY={
+  // Bruma — variante "Biohidratante" e versões com/sem hífen → nome canônico
   'Bruma Biohidratante Corporal Aqua - 200ml':'Bruma Hidratante Corporal - 200ml',
-  'Creme Hidratante M\u00e3os Pr\u00f3-Idade - 50ml':'Creme Hidratante M\u00e3os Pr\u00f3-Idade - 60g'
+  'Bruma Biohidratante Corporal Aqua 200ml':'Bruma Hidratante Corporal - 200ml',
+  'Bruma Hidratante Corporal 200ml':'Bruma Hidratante Corporal - 200ml',
+  // Creme Hidratante Mãos Pró-Idade — 50ml e 60g são o mesmo produto
+  'Creme Hidratante M\u00e3os Pr\u00f3-Idade - 50ml':'Creme Hidratante M\u00e3os Pr\u00f3-Idade - 60g',
+  'Creme Hidratante M\u00e3os Pr\u00f3-Idade 50ml':'Creme Hidratante M\u00e3os Pr\u00f3-Idade - 60g',
+  'Creme Hidratante M\u00e3os Pr\u00f3-Idade 60g':'Creme Hidratante M\u00e3os Pr\u00f3-Idade - 60g',
+  // Sérum Corporal Hidratante Pró-Idade — versões com/sem hífen
+  'S\u00e9rum Corporal Hidratante Pr\u00f3-Idade 250ml':'S\u00e9rum Corporal Hidratante Pr\u00f3-Idade - 250ml'
 };
 // Exclusion patterns for Geral/B2B tabs (travel, presente, mini)
 const SKU_EXCLUDE_RE=/travel|presente|7ml|25ml|25g|4ml|#PA00026|00\/01\/00|00:00:00/i;

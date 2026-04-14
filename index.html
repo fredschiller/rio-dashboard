@@ -2127,11 +2127,22 @@ function buildSkuEvoData(){
     const selMedico=sel?sel.value:'Todos';
     if(selMedico!=='Todos') rows=rows.filter(d=>d.medico===selMedico);
     raw=rows.map(r=>({dia:r.periodo+'-01',canal:'B2B',rep:r.rep,sku:r.sku,receita:r.receita,volume:r.volume}));
+  } else if(currentTab==='concierge' || currentTab==='b2bcs' || currentTab==='b2btotal'){
+    // B2B tabs: use b2b_canais.sku_monthly (already kit-expanded per product)
+    const sm=(D.b2b_canais&&D.b2b_canais.sku_monthly)||[];
+    let rows=sm;
+    if(!repIsAll()) rows=rows.filter(d=>repMatch(d.rep));
+    raw=rows.map(r=>({dia:r.periodo+'-01',canal:'B2B',rep:r.rep,sku:r.sku,receita:r.receita,volume:r.volume}));
+  } else if(currentTab==='varejo'){
+    // Varejo tab: use venancio_detail.matrix_monthly
+    const vm=(D.venancio_detail&&D.venancio_detail.matrix_monthly)||[];
+    let rows=vm;
+    if(!repIsAll()) rows=rows.filter(d=>repMatch(d.rep));
+    raw=rows.map(r=>({dia:r.periodo+'-01',canal:'Varejo',rep:r.rep,sku:r.sku,receita:r.receita,volume:r.volume}));
   } else {
+    // Geral tab: use daily.sku_daily (all channels)
     const dailySku=(D.daily&&D.daily.sku_daily)||[];
-    const canais=tabCanais(currentTab);
     let rows=dailySku;
-    if(canais) rows=rows.filter(d=>canais.has(d.canal));
     if(!repIsAll()) rows=rows.filter(d=>repMatch(d.rep));
     raw=rows;
   }
@@ -4223,17 +4234,14 @@ function renderB2BTSkuMonthly(){
   const el = document.getElementById('b2bt-sku-monthly');
   if(!el || !D) return;
 
-  // Site B2B (kits expanded) + Concierge (as single line per month) + Varejo
+  // B2B (Site + Concierge, kits expanded per product) + Varejo Venâncio
+  // Concierge is already included in sku_monthly (calc_b2b_canais aggregates
+  // all B2B rows), so we don't add it again separately to avoid duplication.
   const siteRows = (D.b2b_canais && D.b2b_canais.sku_monthly) || [];
   const varejoRows = (D.venancio_detail && D.venancio_detail.matrix_monthly) || [];
-  const concMBCR = (D.b2b_canais && D.b2b_canais.monthly_by_canal_rep) || [];
 
   const allRows = [];
   siteRows.forEach(r => allRows.push({periodo:r.periodo, sku:r.sku, rep:r.rep, receita:r.receita, volume:r.volume}));
-  // Concierge: add as "Concierge (combos)" per rep per month since we can't split by product
-  concMBCR.filter(r => r.canal === 'Concierge').forEach(r => {
-    allRows.push({periodo:r.periodo, sku:'Concierge (combos diversos)', rep:r.rep, receita:r.receita, volume:r.vendas||0});
-  });
   varejoRows.forEach(r => {
     if(r.receita > 0 || r.volume > 0)
       allRows.push({periodo:r.periodo, sku:r.sku, rep:r.rep||'Varejo', receita:r.receita, volume:r.volume});

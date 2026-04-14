@@ -1201,8 +1201,8 @@ function renderMetaHero(){
     } else if(tab==='concierge'){
       // Concierge: meta B2B do rep × proporção histórica Concierge/B2B
       const daily = (D.daily&&D.daily.rows)||[];
-      const b2bAll = daily.filter(r=>r.canal==='Site'||r.canal==='Concierge');
-      const concAll = daily.filter(r=>r.canal==='Concierge');
+      const b2bAll = daily.filter(r=>r.canal==='B2B');
+      const concAll = daily.filter(r=>r.sub_canal==='Concierge');
       if(repIsAll()){
         let metaB2B=0;
         Object.values(m26r).forEach(rm=>{metaB2B+=rm[mesRef]||0;});
@@ -1234,8 +1234,8 @@ function renderMetaHero(){
       else meses2026.forEach(m=>{[...reps].forEach(r=>{if(m26r[r]&&m26r[r][m])metaB2B+=m26r[r][m];});});
       if(tab==='concierge'){
         const daily=(D.daily&&D.daily.rows)||[];
-        const b2bAll=daily.filter(r=>r.canal==='Site'||r.canal==='Concierge');
-        const concAll=daily.filter(r=>r.canal==='Concierge');
+        const b2bAll=daily.filter(r=>r.canal==='B2B');
+        const concAll=daily.filter(r=>r.sub_canal==='Concierge');
         const fB2B=repIsAll()?b2bAll:b2bAll.filter(r=>repMatch(r.rep));
         const fConc=repIsAll()?concAll:concAll.filter(r=>repMatch(r.rep));
         const ratio=fB2B.reduce((s,r)=>s+r.receita,0)>0?fConc.reduce((s,r)=>s+r.receita,0)/fB2B.reduce((s,r)=>s+r.receita,0):0.8;
@@ -5235,7 +5235,7 @@ function renderConcierge(){
 
   // ── Top SKUs — from VendasTT sku_daily with kits expanded, filtered by period/rep
   const concSkuDaily=(D.daily&&D.daily.sku_daily)||[];
-  let concSkuRows=concSkuDaily.filter(d=>d.canal==='Concierge');
+  let concSkuRows=concSkuDaily.filter(d=>d.sub_canal==='Concierge');
   if(!repIsAll()) concSkuRows=concSkuRows.filter(d=>repMatch(d.rep));
   if(dpActive&&dpStart&&dpEnd){
     concSkuRows=concSkuRows.filter(d=>d.dia>=dpStart&&d.dia<=dpEnd);

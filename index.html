@@ -3701,10 +3701,12 @@ function renderB2BCSSkuMonthly(){
   const meses = [...new Set(allRows.map(r=>r.periodo))].sort();
   const allReps = [...new Set(allRows.map(r=>r.rep))].sort();
 
-  // Aggregate by sku (unified name, so Bruma Biohidratante/hyphen variants merge)
+  // Aggregate by sku (unified name + exclude travel/mini sizes like 7ml/25ml/25g/4ml)
   const skuMap = {};
   rows.forEach(r => {
+    if(isSkuExcluded(r.sku)) return;
     const uName = unifySku(r.sku);
+    if(isSkuExcluded(uName)) return;
     if(!skuMap[uName]) skuMap[uName] = { sku: uName, total_receita: 0, total_volume: 0, meses: {} };
     const s = skuMap[uName];
     if(!s.meses[r.periodo]) s.meses[r.periodo] = { receita: 0, volume: 0 };
@@ -4278,10 +4280,12 @@ function renderB2BTSkuMonthly(){
   const meses = [...new Set(allRows.map(r=>r.periodo))].sort();
   const allReps = [...new Set(allRows.map(r=>r.rep).filter(r=>r!=='Varejo'))].sort();
 
-  // Aggregate by sku (unified name, so Bruma Biohidratante/hyphen variants merge)
+  // Aggregate by sku (unified name + exclude travel/mini sizes like 7ml/25ml/25g/4ml)
   const skuMap = {};
   rows.forEach(r => {
+    if(isSkuExcluded(r.sku)) return;
     const uName = unifySku(r.sku);
+    if(isSkuExcluded(uName)) return;
     if(!skuMap[uName]) skuMap[uName] = { sku: uName, total_receita: 0, total_volume: 0, meses: {} };
     const s = skuMap[uName];
     if(!s.meses[r.periodo]) s.meses[r.periodo] = { receita: 0, volume: 0 };

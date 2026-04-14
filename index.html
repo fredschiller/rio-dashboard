@@ -592,9 +592,10 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
         <div class="pt">ROI por médico — investimento vs receita</div>
         <div class="pn" id="medicos-roi-hint">—</div>
       </div>
-      <div class="kpi-row kpi-4" style="margin-bottom:10px">
+      <div class="kpi-row kpi-5" style="margin-bottom:10px">
         <div class="kpi"><div class="kpi-lbl">Investimento total</div><div class="kpi-val" id="roi-kpi-inv">—</div><div class="kpi-sub" id="roi-kpi-inv-sub"></div><div class="kpi-bar2" style="width:70%;background:var(--gold)"></div></div>
         <div class="kpi"><div class="kpi-lbl">Receita gerada</div><div class="kpi-val" id="roi-kpi-rec">—</div><div class="kpi-sub" id="roi-kpi-rec-sub"></div><div class="kpi-bar2" style="width:85%;background:var(--green)"></div></div>
+        <div class="kpi"><div class="kpi-lbl">Resultado líquido</div><div class="kpi-val" id="roi-kpi-res">—</div><div class="kpi-sub" id="roi-kpi-res-sub"></div><div class="kpi-bar2" id="roi-kpi-res-bar" style="width:75%;background:var(--green)"></div></div>
         <div class="kpi"><div class="kpi-lbl">ROI médio</div><div class="kpi-val" id="roi-kpi-avg">—</div><div class="kpi-sub" id="roi-kpi-avg-sub"></div><div class="kpi-bar2" style="width:60%;background:var(--violet)"></div></div>
         <div class="kpi"><div class="kpi-lbl">Médicos visitados</div><div class="kpi-val" id="roi-kpi-med">—</div><div class="kpi-sub" id="roi-kpi-med-sub"></div><div class="kpi-bar2" style="width:55%;background:var(--blue)"></div></div>
       </div>
@@ -616,6 +617,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
             <th class="r" style="cursor:pointer" onclick="sortRoiTable('receita')">Receita<span id="roi-th-rec"></span></th>
             <th class="r" style="cursor:pointer" onclick="sortRoiTable('pedidos')">Pedidos<span id="roi-th-ped"></span></th>
             <th class="r" style="cursor:pointer" onclick="sortRoiTable('roi')">ROI<span id="roi-th-roi"></span></th>
+            <th class="r" style="cursor:pointer" onclick="sortRoiTable('resultado')">Resultado<span id="roi-th-res"></span></th>
             <th class="d">Última visita</th>
           </tr></thead>
           <tbody id="medicos-roi-list"></tbody>
@@ -2552,7 +2554,10 @@ function sortRoiTable(col){
 }
 
 function renderMedicosROI(){
-  const all=D.investimento_medico||[];
+  const all=(D.investimento_medico||[]).map(r=>({
+    ...r,
+    resultado:(r.receita||0)-(r.investimento||0)
+  }));
   // Filter by rep (Varejo not applicable here)
   let rows=all;
   if(!repIsAll()) rows=rows.filter(r=>repMatch(r.rep));
@@ -2579,10 +2584,24 @@ function renderMedicosROI(){
   const medVisitados=kpiRows.filter(r=>(r.visitas||0)>0).length;
   const medComRetorno=kpiRows.filter(r=>(r.receita||0)>0).length;
 
+  const totRes=totRec-totInv;
+  const medLucro=kpiRows.filter(r=>((r.receita||0)-(r.investimento||0))>0).length;
+  const medPrej=kpiRows.filter(r=>(r.investimento||0)>0&&((r.receita||0)-(r.investimento||0))<0).length;
+
   document.getElementById('roi-kpi-inv').textContent=R(totInv);
   document.getElementById('roi-kpi-inv-sub').textContent=kpiRows.filter(r=>(r.investimento||0)>0).length+' médicos c/ amostra';
   document.getElementById('roi-kpi-rec').textContent=R(totRec);
   document.getElementById('roi-kpi-rec-sub').textContent=medComRetorno+' médicos c/ compra';
+  const resEl=document.getElementById('roi-kpi-res');
+  const resSubEl=document.getElementById('roi-kpi-res-sub');
+  const resBarEl=document.getElementById('roi-kpi-res-bar');
+  if(resEl){
+    const sign=totRes>=0?'+':'−';
+    const col=totRes>=0?'var(--green)':'var(--red)';
+    resEl.innerHTML='<span style="color:'+col+'">'+sign+R(Math.abs(totRes))+'</span>';
+    if(resSubEl) resSubEl.textContent=medLucro+' lucro · '+medPrej+' prejuízo';
+    if(resBarEl) resBarEl.style.background=col;
+  }
   document.getElementById('roi-kpi-avg').textContent=roiAvg.toFixed(1)+'x';
   document.getElementById('roi-kpi-avg-sub').textContent=roiAvg>=1?'cada R$1 invest. = '+R(roiAvg):'abaixo do breakeven';
   document.getElementById('roi-kpi-med').textContent=medVisitados;
@@ -2596,11 +2615,11 @@ function renderMedicosROI(){
   }
 
   // Update sort arrows
-  ['vis','prod','inv','rec','ped','roi'].forEach(k=>{
+  ['vis','prod','inv','rec','ped','roi','res'].forEach(k=>{
     const el=document.getElementById('roi-th-'+k);
     if(el) el.textContent='';
   });
-  const arrowMap={visitas:'vis',produtos_entregues:'prod',investimento:'inv',receita:'rec',pedidos:'ped',roi:'roi'};
+  const arrowMap={visitas:'vis',produtos_entregues:'prod',investimento:'inv',receita:'rec',pedidos:'ped',roi:'roi',resultado:'res'};
   const tgt=document.getElementById('roi-th-'+arrowMap[_roiSort.col]);
   if(tgt) tgt.textContent=_roiSort.asc?' ▲':' ▼';
 
@@ -2608,7 +2627,7 @@ function renderMedicosROI(){
   const el=document.getElementById('medicos-roi-list');
   if(!el) return;
   if(!rows.length){
-    el.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px;font-size:10px">Nenhum médico no filtro atual.</td></tr>';
+    el.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:16px;font-size:10px">Nenhum médico no filtro atual.</td></tr>';
     return;
   }
   el.innerHTML=rows.slice(0,100).map(r=>{
@@ -2624,12 +2643,25 @@ function renderMedicosROI(){
     } else {
       roiHtml='<span style="color:var(--red)">0x</span>';
     }
+    // Resultado financeiro = receita - investimento (gain/loss)
+    const res=r.resultado||0;
+    const hasInv=(r.investimento||0)>0;
+    let resHtml;
+    if(!hasInv){
+      resHtml='<span style="color:var(--muted)">—</span>';
+    } else if(res>0){
+      resHtml='<span style="color:var(--green);font-weight:700">+'+R(res)+'</span>';
+    } else if(res<0){
+      resHtml='<span style="color:var(--red);font-weight:700">−'+R(Math.abs(res))+'</span>';
+    } else {
+      resHtml='<span style="color:var(--muted)">R$ 0</span>';
+    }
     const nameShort=r.medico_curto||r.medico||'—';
     const nameFull=esc(r.medico||nameShort);
     const ultVis=r.ultima_visita?r.ultima_visita.split('-').reverse().join('/'):'—';
-    return `<tr><td style="font-weight:500" title="${nameFull}">${esc(nameShort.length>28?nameShort.slice(0,26)+'…':nameShort)}</td><td class="d"><span class="pill ${repCls}">${r.rep||'—'}</span></td><td class="r">${r.visitas||0}</td><td class="r" style="color:var(--muted)">${r.produtos_entregues||0}</td><td class="r">${R(r.investimento||0)}</td><td class="r">${R(r.receita||0)}</td><td class="r" style="color:var(--muted)">${r.pedidos||0}</td><td class="r">${roiHtml}</td><td class="d" style="font-size:9px;color:var(--muted)">${ultVis}</td></tr>`;
+    return `<tr><td style="font-weight:500" title="${nameFull}">${esc(nameShort.length>28?nameShort.slice(0,26)+'…':nameShort)}</td><td class="d"><span class="pill ${repCls}">${r.rep||'—'}</span></td><td class="r">${r.visitas||0}</td><td class="r" style="color:var(--muted)">${r.produtos_entregues||0}</td><td class="r">${R(r.investimento||0)}</td><td class="r">${R(r.receita||0)}</td><td class="r" style="color:var(--muted)">${r.pedidos||0}</td><td class="r">${roiHtml}</td><td class="r">${resHtml}</td><td class="d" style="font-size:9px;color:var(--muted)">${ultVis}</td></tr>`;
   }).join('')+
-    (rows.length>100?`<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:8px;font-size:9px;font-style:italic">Mostrando top 100 de ${rows.length}</td></tr>`:'');
+    (rows.length>100?`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:8px;font-size:9px;font-style:italic">Mostrando top 100 de ${rows.length}</td></tr>`:'');
 }
 
 function renderMedicosInatividade(){

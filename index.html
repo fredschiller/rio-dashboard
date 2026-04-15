@@ -2115,7 +2115,18 @@ const SKU_UNIFY={
   'S\u00e9rum Antirrugas 30ml':'S\u00e9rum Antirrugas - 30ml',
   'S\u00e9rum Antirrugas Olhos 30ml':'S\u00e9rum Antirrugas Olhos - 30ml',
   'S\u00e9rum Firmador 60ml':'S\u00e9rum Firmador - 60ml',
-  'S\u00e9rum Oil Control 60ml':'S\u00e9rum Oil Control - 60ml'
+  'S\u00e9rum Oil Control 60ml':'S\u00e9rum Oil Control - 60ml',
+  // ── Pares travel: variante sem hífen → canônico "- Travel Size -" ──
+  'Concentrado Antioleosidade 4ml':'Concentrado Antioleosidade - Travel Size - 4ml',
+  'Creme Hidratante M\u00e3os Pr\u00f3-Idade 25g':'Creme Hidratante M\u00e3os Pr\u00f3-Idade - Travel Size - 25g',
+  'Lo\u00e7\u00e3o Hidratante Corporal 25ml':'Lo\u00e7\u00e3o Hidratante Corporal - Travel Size - 25ml',
+  'Mist Pr\u00f3-Firmeza 7ml':'Mist Pr\u00f3-Firmeza - Travel Size - 7ml',
+  'Mist Revitalizante 7ml':'Mist Revitalizante - Travel Size - 7ml',
+  'SOS Regenerador Noturno 7ml':'SOS Regenerador Noturno - Travel Size - 7ml',
+  'S\u00e9rum Antirrugas 7ml':'S\u00e9rum Antirrugas - Travel Size - 7ml',
+  'S\u00e9rum Antirrugas Olhos 7ml':'S\u00e9rum Antirrugas Olhos - Travel Size - 7ml',
+  'S\u00e9rum Firmador 7ml':'S\u00e9rum Firmador - Travel Size - 7ml',
+  'S\u00e9rum Oil Control 7ml':'S\u00e9rum Oil Control - Travel Size - 7ml'
 };
 // Exclusion patterns for Geral/B2B tabs (travel, presente, mini)
 const SKU_EXCLUDE_RE=/travel|presente|7ml|25ml|25g|4ml|#PA00026|00\/01\/00|00:00:00/i;
@@ -3709,7 +3720,7 @@ function renderB2BCSSkuMonthly(){
     const uName = unifySku(r.sku);
     const isExcl = isSkuExcluded(r.sku) || isSkuExcluded(uName);
     const target = isExcl ? travelMap : skuMap;
-    const key = isExcl ? r.sku : uName;  // travel keeps raw name (no unify)
+    const key = uName;  // unified name for both full and travel rows
     if(!target[key]) target[key] = { sku: key, total_receita: 0, total_volume: 0, meses: {} };
     const s = target[key];
     if(!s.meses[r.periodo]) s.meses[r.periodo] = { receita: 0, volume: 0 };
@@ -4350,7 +4361,7 @@ function renderB2BTSkuMonthly(){
     const uName = unifySku(r.sku);
     const isExcl = isSkuExcluded(r.sku) || isSkuExcluded(uName);
     const target = isExcl ? travelMap : skuMap;
-    const key = isExcl ? r.sku : uName;
+    const key = uName;
     if(!target[key]) target[key] = { sku: key, meses: {} };
     const s = target[key];
     if(!s.meses[r.periodo]) s.meses[r.periodo] = { receita: 0, volume: 0 };

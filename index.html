@@ -3689,25 +3689,26 @@ function setPageTab(tab, el){
 let cB2BCSRev=null, cB2BCSConv=null;
 
 let _skuMSort = { col: 'total_receita', dir: -1 };
-let _skuMRep = 'Todos';
-let _skuMSize = 'Todos';
-let _skuMMedico = 'Todos';
+let _skuMReps = new Set();      // empty = todos
+let _skuMMedicos = new Set();   // empty = todos
+let _skuMMedDropOpen = false;
 
 function renderB2BCSSkuMonthly(){
   const el = document.getElementById('b2bcs-sku-monthly');
   if(!el || !D || !D.b2b_canais) return;
   // When médico filter is active, use sku_monthly_medico (has medico field)
-  const baseRows = _skuMMedico !== 'Todos'
+  const medActive = _skuMMedicos.size > 0;
+  const baseRows = medActive
     ? (D.b2b_canais.sku_monthly_medico || [])
     : (D.b2b_canais.sku_monthly || []);
-  const allRows = _skuMMedico !== 'Todos'
-    ? baseRows.filter(r => r.medico === _skuMMedico)
+  const allRows = medActive
+    ? baseRows.filter(r => _skuMMedicos.has(r.medico))
     : baseRows;
   if(!allRows.length){ el.innerHTML='<div style="color:var(--muted);padding:12px">Sem dados de produtos.</div>'; return; }
 
-  // Filter by rep
+  // Filter by reps (multi-select)
   let rows = allRows;
-  if(_skuMRep !== 'Todos') rows = rows.filter(r => r.rep === _skuMRep);
+  if(_skuMReps.size > 0) rows = rows.filter(r => _skuMReps.has(r.rep));
   const meses = [...new Set(allRows.map(r=>r.periodo))].sort();
   const allReps = [...new Set(allRows.map(r=>r.rep))].sort();
 
@@ -3749,21 +3750,13 @@ function renderB2BCSSkuMonthly(){
   function arrow(col){ return sc===col ? (sd===-1?'&#9660;':'&#9650;') : ''; }
   const RC_MAP = {Lizete:'var(--green)',Emilia:'var(--gold)',Danielle:'var(--red)','Riô':'var(--violet)',Fred:'var(--blue)'};
 
-  // Filters: Rep dropdown + Médico dropdown
-  const dd = 'style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:10px;cursor:pointer"';
-  let html = `<div style="display:flex;gap:12px;margin-bottom:8px;align-items:center;flex-wrap:wrap">`;
-  html += `<label style="font-size:9px;color:var(--muted)">Representante</label>`;
-  html += `<select onchange="setSkuMRep(this.value)" ${dd}>`;
-  html += `<option value="Todos" ${_skuMRep==='Todos'?'selected':''}>Todos</option>`;
-  allReps.forEach(r => { html += `<option value="${r}" ${_skuMRep===r?'selected':''}>${r}</option>`; });
-  html += `</select>`;
-  // Médico dropdown
+  // Filters: Rep chips (multi) + Médico checkbox dropdown (multi)
   const allMedicos = [...new Set((D.b2b_canais.sku_monthly_medico||[]).map(r=>r.medico))].sort();
-  html += `<label style="font-size:9px;color:var(--muted)">Médico</label>`;
-  html += `<select onchange="setSkuMMedico(this.value)" ${dd}>`;
-  html += `<option value="Todos" ${_skuMMedico==='Todos'?'selected':''}>Todos</option>`;
-  allMedicos.forEach(m => { html += `<option value="${esc(m)}" ${_skuMMedico===m?'selected':''}>${esc(m)}</option>`; });
-  html += `</select>`;
+  let html = `<div style="display:flex;gap:10px;margin-bottom:8px;align-items:center;flex-wrap:wrap">`;
+  html += `<span style="font-size:9px;color:var(--muted)">Rep:</span>`;
+  html += renderSkuChips('skuM', allReps, _skuMReps);
+  html += `<span style="font-size:9px;color:var(--muted);margin-left:8px">Médico:</span>`;
+  html += renderSkuMedMs('skuM', allMedicos, _skuMMedicos, _skuMMedDropOpen);
   html += `</div>`;
 
   // Table — alternating month background for visual clarity
@@ -3885,12 +3878,57 @@ function renderB2BCSSkuMonthly(){
 
 let _skuMShowTravel = false;
 function toggleSkuMTravel(){ _skuMShowTravel = !_skuMShowTravel; renderB2BCSSkuMonthly(); }
-function setSkuMRep(r){ _skuMRep = r; renderB2BCSSkuMonthly(); }
-function setSkuMMedico(m){ _skuMMedico = m; renderB2BCSSkuMonthly(); }
+function toggleSkuMRep(r){
+  if(_skuMReps.has(r)) _skuMReps.delete(r); else _skuMReps.add(r);
+  renderB2BCSSkuMonthly();
+}
+function clearSkuMReps(){ _skuMReps.clear(); renderB2BCSSkuMonthly(); }
+function toggleSkuMMedDrop(){ _skuMMedDropOpen = !_skuMMedDropOpen; renderB2BCSSkuMonthly(); }
+function toggleSkuMMedico(m){
+  if(_skuMMedicos.has(m)) _skuMMedicos.delete(m); else _skuMMedicos.add(m);
+  renderB2BCSSkuMonthly();
+}
+function clearSkuMMedicos(){ _skuMMedicos.clear(); renderB2BCSSkuMonthly(); }
 function sortSkuM(col){
   if(_skuMSort.col === col) _skuMSort.dir *= -1;
   else { _skuMSort.col = col; _skuMSort.dir = -1; }
   renderB2BCSSkuMonthly();
+}
+
+// ── Multi-select helpers shared by B2B C+S and B2B Total panels ──
+function _encArg(s){ return encodeURIComponent(String(s)); }
+function renderSkuChips(ns, options, selectedSet){
+  const allOn = selectedSet.size === 0;
+  const clearFn = ns==='skuM' ? 'clearSkuMReps()' : 'clearSkuBTReps()';
+  const tgFn = ns==='skuM' ? 'toggleSkuMRep' : 'toggleSkuBTRep';
+  let h = `<div style="display:flex;gap:4px;flex-wrap:wrap">`;
+  h += `<button onclick="${clearFn}" style="font-size:9px;padding:3px 9px;border-radius:12px;border:1px solid ${allOn?'var(--green)':'var(--border)'};background:${allOn?'rgba(126,251,179,0.12)':'var(--bg2)'};color:${allOn?'var(--green)':'var(--muted)'};cursor:pointer">Todos</button>`;
+  options.forEach(r => {
+    const on = selectedSet.has(r);
+    h += `<button onclick="${tgFn}(decodeURIComponent('${_encArg(r)}'))" style="font-size:9px;padding:3px 9px;border-radius:12px;border:1px solid ${on?'var(--blue)':'var(--border)'};background:${on?'rgba(122,184,245,0.15)':'var(--bg2)'};color:${on?'var(--blue)':'var(--text)'};cursor:pointer">${esc(r)}</button>`;
+  });
+  h += `</div>`;
+  return h;
+}
+
+function renderSkuMedMs(ns, options, selectedSet, open){
+  const label = selectedSet.size === 0 ? 'Todos' : (selectedSet.size === 1 ? [...selectedSet][0] : `${selectedSet.size} médicos`);
+  const toggleFn = ns==='skuM' ? 'toggleSkuMMedDrop()' : 'toggleSkuBTMedDrop()';
+  const itemFn = ns==='skuM' ? 'toggleSkuMMedico' : 'toggleSkuBTMedico';
+  const clearFn = ns==='skuM' ? 'clearSkuMMedicos()' : 'clearSkuBTMedicos()';
+  let h = `<div style="position:relative;display:inline-block">`;
+  h += `<button onclick="${toggleFn}" style="font-size:10px;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer;min-width:120px;text-align:left">${esc(label)} ${open?'&#9650;':'&#9660;'}</button>`;
+  if(open){
+    h += `<div style="position:absolute;top:100%;left:0;margin-top:2px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px;max-height:280px;overflow-y:auto;z-index:100;min-width:240px;box-shadow:0 4px 12px rgba(0,0,0,0.4)">`;
+    h += `<div onclick="${clearFn}" style="font-size:9px;padding:4px 8px;cursor:pointer;color:${selectedSet.size===0?'var(--green)':'var(--muted)'};border-bottom:1px solid var(--border);margin-bottom:4px">${selectedSet.size===0?'✓ ':''}Todos os médicos</div>`;
+    options.forEach(m => {
+      const on = selectedSet.has(m);
+      h += `<div onclick="${itemFn}(decodeURIComponent('${_encArg(m)}'))" style="font-size:9px;padding:3px 8px;cursor:pointer;color:${on?'var(--blue)':'var(--text)'};white-space:nowrap">${on?'☑ ':'☐ '}${esc(m)}</div>`;
+    });
+    h += `</div>`;
+  }
+  h += `</div>`;
+  return h;
 }
 
 function renderB2BCS(){
@@ -4323,8 +4361,9 @@ function renderB2BCS(){
 
 // ── B2B TOTAL — SKU MONTHLY TABLE ─────────────────────────────────────────────
 let _skuBTSort = { col: 'total_receita', dir: -1 };
-let _skuBTRep = 'Todos';
-let _skuBTSize = 'Todos';
+let _skuBTReps = new Set();      // empty = todos
+let _skuBTMedicos = new Set();   // empty = todos; ativo exclui Varejo
+let _skuBTMedDropOpen = false;
 let _skuBTAllMonths = false;
 
 function renderB2BTSkuMonthly(){
@@ -4332,13 +4371,19 @@ function renderB2BTSkuMonthly(){
   if(!el || !D) return;
 
   // B2B (Site + Concierge, kits expanded per product) + Varejo Venâncio
-  // Concierge is already included in sku_monthly (calc_b2b_canais aggregates
-  // all B2B rows), so we don't add it again separately to avoid duplication.
-  const siteRows = (D.b2b_canais && D.b2b_canais.sku_monthly) || [];
-  const varejoRows = (D.venancio_detail && D.venancio_detail.matrix_monthly) || [];
+  // When médico filter is active, swap B2B source to sku_monthly_medico and
+  // drop Varejo (no médico info there).
+  const medActive = _skuBTMedicos.size > 0;
+  const b2bSrc = medActive
+    ? (D.b2b_canais && D.b2b_canais.sku_monthly_medico) || []
+    : (D.b2b_canais && D.b2b_canais.sku_monthly) || [];
+  const varejoRows = medActive ? [] : ((D.venancio_detail && D.venancio_detail.matrix_monthly) || []);
 
   const allRows = [];
-  siteRows.forEach(r => allRows.push({periodo:r.periodo, sku:r.sku, rep:r.rep, receita:r.receita, volume:r.volume}));
+  b2bSrc.forEach(r => {
+    if(medActive && !_skuBTMedicos.has(r.medico)) return;
+    allRows.push({periodo:r.periodo, sku:r.sku, rep:r.rep, receita:r.receita, volume:r.volume});
+  });
   varejoRows.forEach(r => {
     if(r.receita > 0 || r.volume > 0)
       allRows.push({periodo:r.periodo, sku:r.sku, rep:r.rep||'Varejo', receita:r.receita, volume:r.volume});
@@ -4346,9 +4391,9 @@ function renderB2BTSkuMonthly(){
 
   if(!allRows.length){ el.innerHTML='<div style="color:var(--muted);padding:12px">Sem dados de produtos.</div>'; return; }
 
-  // Filter by rep
+  // Filter by reps (multi-select)
   let rows = allRows;
-  if(_skuBTRep !== 'Todos') rows = rows.filter(r => r.rep === _skuBTRep);
+  if(_skuBTReps.size > 0) rows = rows.filter(r => _skuBTReps.has(r.rep));
   const meses = [...new Set(allRows.map(r=>r.periodo))].sort();
   const allReps = [...new Set(allRows.map(r=>r.rep).filter(r=>r!=='Varejo'))].sort();
 
@@ -4412,14 +4457,13 @@ function renderB2BTSkuMonthly(){
   const RC_MAP = {Lizete:'var(--green)',Emilia:'var(--gold)',Danielle:'var(--red)','Riô':'var(--violet)',Fred:'var(--blue)'};
   const mesEven = 'rgba(255,255,255,0.02)', mesOdd = 'transparent';
 
-  // Filters: Rep dropdown + Months toggle
-  const ddBT = 'style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:10px;cursor:pointer"';
-  let html = `<div style="display:flex;gap:12px;margin-bottom:8px;align-items:center;flex-wrap:wrap">`;
-  html += `<label style="font-size:9px;color:var(--muted)">Representante</label>`;
-  html += `<select onchange="setSkuBTRep(this.value)" ${ddBT}>`;
-  html += `<option value="Todos" ${_skuBTRep==='Todos'?'selected':''}>Todos</option>`;
-  allReps.forEach(r => { html += `<option value="${r}" ${_skuBTRep===r?'selected':''}>${r}</option>`; });
-  html += `</select>`;
+  // Filters: Rep chips (multi) + Médico checkbox dropdown (multi) + Months toggle
+  const allMedicosBT = [...new Set((D.b2b_canais && D.b2b_canais.sku_monthly_medico || []).map(r=>r.medico))].sort();
+  let html = `<div style="display:flex;gap:10px;margin-bottom:8px;align-items:center;flex-wrap:wrap">`;
+  html += `<span style="font-size:9px;color:var(--muted)">Rep:</span>`;
+  html += renderSkuChips('skuBT', allReps, _skuBTReps);
+  html += `<span style="font-size:9px;color:var(--muted);margin-left:8px">Médico:</span>`;
+  html += renderSkuMedMs('skuBT', allMedicosBT, _skuBTMedicos, _skuBTMedDropOpen);
   html += `<div style="display:flex;gap:2px;margin-left:auto">`;
   html += `<button class="tab-btn ${!_skuBTAllMonths?'on':''}" onclick="toggleBTMonths(false)" style="font-size:9px;padding:3px 10px">\u00DAltimos 6 meses</button>`;
   html += `<button class="tab-btn ${_skuBTAllMonths?'on':''}" onclick="toggleBTMonths(true)" style="font-size:9px;padding:3px 10px">Todos os meses</button>`;
@@ -4541,7 +4585,17 @@ function renderB2BTSkuMonthly(){
 
 let _skuBTShowTravel = false;
 function toggleSkuBTTravel(){ _skuBTShowTravel = !_skuBTShowTravel; renderB2BTSkuMonthly(); }
-function setSkuBTRep(r){ _skuBTRep = r; renderB2BTSkuMonthly(); }
+function toggleSkuBTRep(r){
+  if(_skuBTReps.has(r)) _skuBTReps.delete(r); else _skuBTReps.add(r);
+  renderB2BTSkuMonthly();
+}
+function clearSkuBTReps(){ _skuBTReps.clear(); renderB2BTSkuMonthly(); }
+function toggleSkuBTMedDrop(){ _skuBTMedDropOpen = !_skuBTMedDropOpen; renderB2BTSkuMonthly(); }
+function toggleSkuBTMedico(m){
+  if(_skuBTMedicos.has(m)) _skuBTMedicos.delete(m); else _skuBTMedicos.add(m);
+  renderB2BTSkuMonthly();
+}
+function clearSkuBTMedicos(){ _skuBTMedicos.clear(); renderB2BTSkuMonthly(); }
 function toggleBTMonths(all){ _skuBTAllMonths = all; renderB2BTSkuMonthly(); }
 function sortSkuBT(col){
   if(_skuBTSort.col === col) _skuBTSort.dir *= -1;

@@ -3948,7 +3948,7 @@ function renderSkuMedMs(ns, options, selectedSet, open){
   h += `<button onclick="${toggleFn}" style="font-size:10px;padding:3px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer;min-width:120px;text-align:left">${esc(label)} ${open?'&#9650;':'&#9660;'}</button>`;
   if(open){
     h += `<div style="position:absolute;top:100%;left:0;margin-top:2px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;z-index:100;min-width:240px;box-shadow:0 4px 12px rgba(0,0,0,0.4);display:flex;flex-direction:column">`;
-    h += `<div style="max-height:280px;overflow-y:auto;padding:6px">`;
+    h += `<div id="${ns}-medms-scroll" style="max-height:280px;overflow-y:auto;padding:6px">`;
     h += `<div onclick="${clearFn}" style="font-size:9px;padding:4px 8px;cursor:pointer;color:${selectedSet.size===0?'var(--green)':'var(--muted)'};border-bottom:1px solid var(--border);margin-bottom:4px">${selectedSet.size===0?'✓ ':''}Todos os médicos</div>`;
     options.forEach(m => {
       const on = selectedSet.has(m);
@@ -4654,6 +4654,9 @@ function resetSkuBTMedicos(){
 function refreshSkuMedDropdown(ns){
   const wrap = document.getElementById(ns+'-medms-wrap');
   if(!wrap) return;
+  // preserve scroll position of the options list across re-render
+  const oldScroll = document.getElementById(ns+'-medms-scroll');
+  const savedTop = oldScroll ? oldScroll.scrollTop : 0;
   let opts, selected, open;
   if(ns==='skuM'){
     opts = [...new Set((D.b2b_canais && D.b2b_canais.sku_monthly_medico || []).map(r=>r.medico))].sort();
@@ -4665,6 +4668,8 @@ function refreshSkuMedDropdown(ns){
     open = _skuBTMedDropOpen;
   }
   wrap.innerHTML = renderSkuMedMs(ns, opts, selected, open);
+  const newScroll = document.getElementById(ns+'-medms-scroll');
+  if(newScroll) newScroll.scrollTop = savedTop;
 }
 function toggleBTMonths(all){ _skuBTAllMonths = all; renderB2BTSkuMonthly(); }
 function sortSkuBT(col){

@@ -3908,6 +3908,12 @@ function applySkuMMedicos(){
   _skuMMedDropOpen = false;
   renderB2BCSSkuMonthly();
 }
+function resetSkuMMedicos(){
+  _skuMMedicosPending.clear();
+  _skuMMedicos.clear();
+  _skuMMedDropOpen = false;
+  renderB2BCSSkuMonthly();
+}
 function sortSkuM(col){
   if(_skuMSort.col === col) _skuMSort.dir *= -1;
   else { _skuMSort.col = col; _skuMSort.dir = -1; }
@@ -3949,8 +3955,10 @@ function renderSkuMedMs(ns, options, selectedSet, open){
       h += `<div onclick="${itemFn}(decodeURIComponent('${_encArg(m)}'))" style="font-size:9px;padding:3px 8px;cursor:pointer;color:${on?'var(--blue)':'var(--text)'};white-space:nowrap">${on?'☑ ':'☐ '}${esc(m)}</div>`;
     });
     h += `</div>`;
-    // Botão OK pra aplicar o filtro
-    h += `<div style="border-top:1px solid var(--border);padding:6px;display:flex;justify-content:flex-end">`;
+    // Botões Limpar + OK pra aplicar o filtro
+    const resetFn = ns==='skuM' ? 'resetSkuMMedicos()' : 'resetSkuBTMedicos()';
+    h += `<div style="border-top:1px solid var(--border);padding:6px;display:flex;justify-content:flex-end;gap:6px">`;
+    h += `<button onclick="${resetFn}" style="font-size:10px;padding:4px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);cursor:pointer">Limpar</button>`;
     h += `<button onclick="${applyFn}" style="font-size:10px;padding:4px 14px;border-radius:6px;border:1px solid var(--green);background:rgba(126,251,179,0.15);color:var(--green);cursor:pointer;font-weight:600">OK</button>`;
     h += `</div>`;
     h += `</div>`;
@@ -4634,6 +4642,12 @@ function clearSkuBTMedicos(){
 }
 function applySkuBTMedicos(){
   _skuBTMedicos = new Set(_skuBTMedicosPending);
+  _skuBTMedDropOpen = false;
+  renderB2BTSkuMonthly();
+}
+function resetSkuBTMedicos(){
+  _skuBTMedicosPending.clear();
+  _skuBTMedicos.clear();
   _skuBTMedDropOpen = false;
   renderB2BTSkuMonthly();
 }

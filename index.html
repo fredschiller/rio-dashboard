@@ -2136,10 +2136,15 @@ const SKU_UNIFY={
 };
 // Exclusion patterns for Geral/B2B tabs (travel, presente, mini)
 const SKU_EXCLUDE_RE=/travel|presente|7ml|25ml|25g|4ml|#PA00026|00\/01\/00|00:00:00/i;
+// Bogus/garbage SKUs — always removed from panels (not bucketed to travel)
+const SKU_BOGUS_RE=/\[C[óo]digo\s|\(c[óo]pia\)/i;
 
 function unifySku(name){return SKU_UNIFY[name]||name;}
 function isSkuExcluded(name){
   return SKU_EXCLUDE_RE.test(name);
+}
+function isSkuBogus(name){
+  return SKU_BOGUS_RE.test(String(name||''));
 }
 let _skuEvoSelected=new Set(); // selected product names
 let _skuEvoAll=[]; // all available products for current context
@@ -2184,8 +2189,11 @@ function buildSkuEvoData(){
     if(!repIsAll()) rows=rows.filter(d=>repMatch(d.rep));
     raw=rows;
   }
-  // Unify names + exclude travel/presente
-  return raw.filter(d=>!isSkuExcluded(d.sku)).map(d=>({...d,sku:unifySku(d.sku)}));
+  // Unify names + exclude travel/presente + exclude bogus ([Código X], cópia)
+  return raw
+    .filter(d=>!isSkuBogus(d.sku) && !isSkuExcluded(d.sku))
+    .map(d=>({...d,sku:unifySku(d.sku)}))
+    .filter(d=>!isSkuBogus(d.sku));
 }
 
 function populateMedMsList(){
@@ -3725,7 +3733,9 @@ function renderB2BCSSkuMonthly(){
   const skuMap = {};
   const travelMap = {};
   rows.forEach(r => {
+    if(isSkuBogus(r.sku)) return;
     const uName = unifySku(r.sku);
+    if(isSkuBogus(uName)) return;
     const isExcl = isSkuExcluded(r.sku) || isSkuExcluded(uName);
     const target = isExcl ? travelMap : skuMap;
     const key = uName;  // unified name for both full and travel rows
@@ -4440,7 +4450,9 @@ function renderB2BTSkuMonthly(){
   const skuMap = {};
   const travelMap = {};
   rows.forEach(r => {
+    if(isSkuBogus(r.sku)) return;
     const uName = unifySku(r.sku);
+    if(isSkuBogus(uName)) return;
     const isExcl = isSkuExcluded(r.sku) || isSkuExcluded(uName);
     const target = isExcl ? travelMap : skuMap;
     const key = uName;

@@ -3700,20 +3700,25 @@ function renderB2BCSSkuMonthly(){
   const meses = [...new Set(allRows.map(r=>r.periodo))].sort();
   const allReps = [...new Set(allRows.map(r=>r.rep))].sort();
 
-  // Aggregate by sku (unified name + exclude travel/mini sizes like 7ml/25ml/25g/4ml)
+  // Aggregate by sku:
+  //  - skuMap: Full products (unified name, visible in table)
+  //  - travelMap: travel/mini sizes excluded from main list but shown in expandable footer
   const skuMap = {};
+  const travelMap = {};
   rows.forEach(r => {
-    if(isSkuExcluded(r.sku)) return;
     const uName = unifySku(r.sku);
-    if(isSkuExcluded(uName)) return;
-    if(!skuMap[uName]) skuMap[uName] = { sku: uName, total_receita: 0, total_volume: 0, meses: {} };
-    const s = skuMap[uName];
+    const isExcl = isSkuExcluded(r.sku) || isSkuExcluded(uName);
+    const target = isExcl ? travelMap : skuMap;
+    const key = isExcl ? r.sku : uName;  // travel keeps raw name (no unify)
+    if(!target[key]) target[key] = { sku: key, total_receita: 0, total_volume: 0, meses: {} };
+    const s = target[key];
     if(!s.meses[r.periodo]) s.meses[r.periodo] = { receita: 0, volume: 0 };
     s.meses[r.periodo].receita += r.receita;
     s.meses[r.periodo].volume += r.volume;
     s.total_receita += r.receita;
     s.total_volume += r.volume;
   });
+  const travelList = Object.values(travelMap).sort((a,b)=>b.total_receita-a.total_receita);
 
   // Sort
   const sc = _skuMSort.col, sd = _skuMSort.dir;
@@ -3786,8 +3791,8 @@ function renderB2BCSSkuMonthly(){
     html += `<td class="r" style="padding:4px 5px;font-weight:600;color:var(--green);background:rgba(126,251,179,0.08)">${R(s.total_receita)}</td></tr>`;
   });
 
-  html += `<tr style="border-top:2px solid var(--border);font-weight:600"><td style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:4px 8px;border-right:1px solid var(--border)">TOTAL</td>`;
-  // TOTAL row: sum from actual table rows (skuList)
+  html += `<tr style="border-top:2px solid var(--border);font-weight:600"><td style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:4px 8px;border-right:1px solid var(--border)">TOTAL Full</td>`;
+  // TOTAL row (Full products only)
   let gRec=0, gVol=0;
   meses.forEach((m,mi) => {
     const vol = skuList.reduce((s,sk) => s + ((sk.meses[m]||{}).volume||0), 0);
@@ -3799,13 +3804,77 @@ function renderB2BCSSkuMonthly(){
   });
   html += `<td class="r" style="padding:4px 5px;background:rgba(126,251,179,0.08);border-left:2px solid var(--green)">${gVol}</td>`;
   html += `<td class="r" style="padding:4px 5px;color:var(--green);background:rgba(126,251,179,0.08)">${R(gRec)}</td>`;
-  html += `</tr></tbody></table></div>`;
+  html += `</tr>`;
+
+  // Travel/mini sizes section (expandable)
+  let tRec = 0, tVol = 0;
+  if(travelList.length > 0){
+    const travelMonthTot = {};
+    meses.forEach(m => {
+      let tv=0, tr=0;
+      travelList.forEach(t => {
+        const d = t.meses[m] || {};
+        tv += d.volume || 0;
+        tr += d.receita || 0;
+      });
+      travelMonthTot[m] = {vol:tv, rec:tr};
+    });
+    tRec = travelList.reduce((s,t)=>s+t.total_receita, 0);
+    tVol = travelList.reduce((s,t)=>s+t.total_volume, 0);
+
+    const arrow = _skuMShowTravel ? '&#9660;' : '&#9654;';
+    html += `<tr style="cursor:pointer;border-top:1px dashed var(--border);color:var(--muted)" onclick="toggleSkuMTravel()">`;
+    html += `<td style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:4px 8px;border-right:1px solid var(--border);font-style:italic">${arrow} Travel sizes ocultos (${travelList.length})</td>`;
+    meses.forEach((m,mi) => {
+      const bg = mi%2===0 ? mesEven : mesOdd;
+      const tm = travelMonthTot[m];
+      html += `<td class="r" style="padding:4px 5px;background:${bg};border-left:1px solid rgba(255,255,255,0.05);font-style:italic">${tm.vol||''}</td>`;
+      html += `<td class="r" style="padding:4px 5px;background:${bg};font-style:italic">${tm.rec>0?R(tm.rec):''}</td>`;
+    });
+    html += `<td class="r" style="padding:4px 5px;background:rgba(255,255,255,0.03);border-left:2px solid var(--border);font-style:italic">${tVol}</td>`;
+    html += `<td class="r" style="padding:4px 5px;background:rgba(255,255,255,0.03);font-style:italic">${R(tRec)}</td>`;
+    html += `</tr>`;
+
+    // Detail rows when expanded
+    if(_skuMShowTravel){
+      travelList.forEach(s => {
+        html += `<tr style="color:var(--muted)"><td style="position:sticky;left:0;background:#101211;z-index:1;padding:3px 8px 3px 24px;font-size:9px;border-right:1px solid var(--border)" title="${esc(s.sku)}">${esc(s.sku.length>38?s.sku.slice(0,36)+'…':s.sku)}</td>`;
+        meses.forEach((m,mi) => {
+          const d = s.meses[m] || { receita: 0, volume: 0 };
+          const bg = mi%2===0 ? mesEven : mesOdd;
+          html += `<td class="r" style="padding:3px 5px;background:${bg};border-left:1px solid rgba(255,255,255,0.05);font-size:9px;color:${d.volume>0?'var(--muted)':'#333'}">${d.volume||''}</td>`;
+          html += `<td class="r" style="padding:3px 5px;background:${bg};font-size:9px;color:${d.receita>0?'var(--muted)':'#333'}">${d.receita>0?R(d.receita):''}</td>`;
+        });
+        html += `<td class="r" style="padding:3px 5px;font-size:9px;background:rgba(255,255,255,0.03);border-left:2px solid var(--border)">${s.total_volume}</td>`;
+        html += `<td class="r" style="padding:3px 5px;font-size:9px;background:rgba(255,255,255,0.03)">${R(s.total_receita)}</td></tr>`;
+      });
+    }
+
+    // GRAND TOTAL REAL row (Full + Travel)
+    html += `<tr style="border-top:2px solid var(--green);font-weight:700;background:rgba(126,251,179,0.05)">`;
+    html += `<td style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:5px 8px;border-right:1px solid var(--border)">TOTAL REAL</td>`;
+    meses.forEach((m,mi) => {
+      const fullVol = skuList.reduce((s,sk)=>s+((sk.meses[m]||{}).volume||0),0);
+      const fullRec = skuList.reduce((s,sk)=>s+((sk.meses[m]||{}).receita||0),0);
+      const totV = fullVol + travelMonthTot[m].vol;
+      const totR = fullRec + travelMonthTot[m].rec;
+      const bg = mi%2===0 ? mesEven : mesOdd;
+      html += `<td class="r" style="padding:5px 5px;background:${bg};border-left:1px solid rgba(255,255,255,0.05)">${totV||''}</td>`;
+      html += `<td class="r" style="padding:5px 5px;background:${bg};color:var(--green)">${totR>0?R(totR):''}</td>`;
+    });
+    html += `<td class="r" style="padding:5px 5px;background:rgba(126,251,179,0.12);border-left:2px solid var(--green)">${gVol+tVol}</td>`;
+    html += `<td class="r" style="padding:5px 5px;color:var(--green);background:rgba(126,251,179,0.12)">${R(gRec+tRec)}</td>`;
+    html += `</tr>`;
+  }
+
+  html += `</tbody></table></div>`;
 
   el.innerHTML = html;
 }
 
+let _skuMShowTravel = false;
+function toggleSkuMTravel(){ _skuMShowTravel = !_skuMShowTravel; renderB2BCSSkuMonthly(); }
 function setSkuMRep(r){ _skuMRep = r; renderB2BCSSkuMonthly(); }
-function setSkuMSize(s){ _skuMSize = s; renderB2BCSSkuMonthly(); }
 function setSkuMMedico(m){ _skuMMedico = m; renderB2BCSSkuMonthly(); }
 function sortSkuM(col){
   if(_skuMSort.col === col) _skuMSort.dir *= -1;
@@ -4272,14 +4341,18 @@ function renderB2BTSkuMonthly(){
   const meses = [...new Set(allRows.map(r=>r.periodo))].sort();
   const allReps = [...new Set(allRows.map(r=>r.rep).filter(r=>r!=='Varejo'))].sort();
 
-  // Aggregate by sku (unified name + exclude travel/mini sizes like 7ml/25ml/25g/4ml)
+  // Aggregate by sku:
+  //  - skuMap: Full products (unified name, visible in table)
+  //  - travelMap: travel/mini sizes — hidden in main list but shown in expandable footer
   const skuMap = {};
+  const travelMap = {};
   rows.forEach(r => {
-    if(isSkuExcluded(r.sku)) return;
     const uName = unifySku(r.sku);
-    if(isSkuExcluded(uName)) return;
-    if(!skuMap[uName]) skuMap[uName] = { sku: uName, meses: {} };
-    const s = skuMap[uName];
+    const isExcl = isSkuExcluded(r.sku) || isSkuExcluded(uName);
+    const target = isExcl ? travelMap : skuMap;
+    const key = isExcl ? r.sku : uName;
+    if(!target[key]) target[key] = { sku: key, meses: {} };
+    const s = target[key];
     if(!s.meses[r.periodo]) s.meses[r.periodo] = { receita: 0, volume: 0 };
     s.meses[r.periodo].receita += r.receita;
     s.meses[r.periodo].volume += r.volume;
@@ -4289,16 +4362,23 @@ function renderB2BTSkuMonthly(){
   const visibleMeses = _skuBTAllMonths ? meses : meses.slice(-6);
 
   // Compute totals restricted to visibleMeses (so row totals + footer match)
-  Object.values(skuMap).forEach(s => {
-    let trec = 0, tvol = 0;
-    visibleMeses.forEach(m => {
-      const d = s.meses[m] || {};
-      trec += d.receita || 0;
-      tvol += d.volume || 0;
+  function computeVisibleTotals(map){
+    Object.values(map).forEach(s => {
+      let trec = 0, tvol = 0;
+      visibleMeses.forEach(m => {
+        const d = s.meses[m] || {};
+        trec += d.receita || 0;
+        tvol += d.volume || 0;
+      });
+      s.total_receita = trec;
+      s.total_volume  = tvol;
     });
-    s.total_receita = trec;
-    s.total_volume  = tvol;
-  });
+  }
+  computeVisibleTotals(skuMap);
+  computeVisibleTotals(travelMap);
+  const travelList = Object.values(travelMap)
+    .filter(s => s.total_receita > 0 || s.total_volume > 0)
+    .sort((a,b)=>b.total_receita-a.total_receita);
 
   // Sort
   const sc = _skuBTSort.col, sd = _skuBTSort.dir;
@@ -4368,8 +4448,8 @@ function renderB2BTSkuMonthly(){
     html += `<td class="r" style="padding:4px 5px;font-weight:600;color:var(--green);background:rgba(126,251,179,0.08)">${R(s.total_receita)}</td></tr>`;
   });
 
-  html += `<tr style="border-top:2px solid var(--border);font-weight:600"><td style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:4px 8px;border-right:1px solid var(--border)">TOTAL</td>`;
-  // TOTAL row: sum from actual table rows (skuList)
+  html += `<tr style="border-top:2px solid var(--border);font-weight:600"><td style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:4px 8px;border-right:1px solid var(--border)">TOTAL Full</td>`;
+  // TOTAL row (Full products only)
   let gRecBT=0, gVolBT=0;
   visibleMeses.forEach((m,mi) => {
     const vol = skuList.reduce((s,sk) => s + ((sk.meses[m]||{}).volume||0), 0);
@@ -4381,13 +4461,76 @@ function renderB2BTSkuMonthly(){
   });
   html += `<td class="r" style="padding:4px 5px;background:rgba(126,251,179,0.08);border-left:2px solid var(--green)">${gVolBT}</td>`;
   html += `<td class="r" style="padding:4px 5px;color:var(--green);background:rgba(126,251,179,0.08)">${R(gRecBT)}</td>`;
-  html += `</tr></tbody></table></div>`;
+  html += `</tr>`;
+
+  // Travel/mini sizes section (expandable)
+  let tRecBT = 0, tVolBT = 0;
+  if(travelList.length > 0){
+    const travelMonthTot = {};
+    visibleMeses.forEach(m => {
+      let tv=0, tr=0;
+      travelList.forEach(t => {
+        const d = t.meses[m] || {};
+        tv += d.volume || 0;
+        tr += d.receita || 0;
+      });
+      travelMonthTot[m] = {vol:tv, rec:tr};
+    });
+    tRecBT = travelList.reduce((s,t)=>s+t.total_receita, 0);
+    tVolBT = travelList.reduce((s,t)=>s+t.total_volume, 0);
+
+    const arrow2 = _skuBTShowTravel ? '&#9660;' : '&#9654;';
+    html += `<tr style="cursor:pointer;border-top:1px dashed var(--border);color:var(--muted)" onclick="toggleSkuBTTravel()">`;
+    html += `<td style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:4px 8px;border-right:1px solid var(--border);font-style:italic">${arrow2} Travel sizes ocultos (${travelList.length})</td>`;
+    visibleMeses.forEach((m,mi) => {
+      const bg = mi%2===0 ? mesEven : mesOdd;
+      const tm = travelMonthTot[m];
+      html += `<td class="r" style="padding:4px 5px;background:${bg};border-left:1px solid rgba(255,255,255,0.05);font-style:italic">${tm.vol||''}</td>`;
+      html += `<td class="r" style="padding:4px 5px;background:${bg};font-style:italic">${tm.rec>0?R(tm.rec):''}</td>`;
+    });
+    html += `<td class="r" style="padding:4px 5px;background:rgba(255,255,255,0.03);border-left:2px solid var(--border);font-style:italic">${tVolBT}</td>`;
+    html += `<td class="r" style="padding:4px 5px;background:rgba(255,255,255,0.03);font-style:italic">${R(tRecBT)}</td>`;
+    html += `</tr>`;
+
+    if(_skuBTShowTravel){
+      travelList.forEach(s => {
+        html += `<tr style="color:var(--muted)"><td style="position:sticky;left:0;background:#101211;z-index:1;padding:3px 8px 3px 24px;font-size:9px;border-right:1px solid var(--border)" title="${esc(s.sku)}">${esc(s.sku.length>38?s.sku.slice(0,36)+'…':s.sku)}</td>`;
+        visibleMeses.forEach((m,mi) => {
+          const d = s.meses[m] || { receita: 0, volume: 0 };
+          const bg = mi%2===0 ? mesEven : mesOdd;
+          html += `<td class="r" style="padding:3px 5px;background:${bg};border-left:1px solid rgba(255,255,255,0.05);font-size:9px;color:${d.volume>0?'var(--muted)':'#333'}">${d.volume||''}</td>`;
+          html += `<td class="r" style="padding:3px 5px;background:${bg};font-size:9px;color:${d.receita>0?'var(--muted)':'#333'}">${d.receita>0?R(d.receita):''}</td>`;
+        });
+        html += `<td class="r" style="padding:3px 5px;font-size:9px;background:rgba(255,255,255,0.03);border-left:2px solid var(--border)">${s.total_volume}</td>`;
+        html += `<td class="r" style="padding:3px 5px;font-size:9px;background:rgba(255,255,255,0.03)">${R(s.total_receita)}</td></tr>`;
+      });
+    }
+
+    // GRAND TOTAL REAL
+    html += `<tr style="border-top:2px solid var(--green);font-weight:700;background:rgba(126,251,179,0.05)">`;
+    html += `<td style="position:sticky;left:0;background:var(--bg2);z-index:1;padding:5px 8px;border-right:1px solid var(--border)">TOTAL REAL</td>`;
+    visibleMeses.forEach((m,mi) => {
+      const fullVol = skuList.reduce((s,sk)=>s+((sk.meses[m]||{}).volume||0),0);
+      const fullRec = skuList.reduce((s,sk)=>s+((sk.meses[m]||{}).receita||0),0);
+      const totV = fullVol + travelMonthTot[m].vol;
+      const totR = fullRec + travelMonthTot[m].rec;
+      const bg = mi%2===0 ? mesEven : mesOdd;
+      html += `<td class="r" style="padding:5px 5px;background:${bg};border-left:1px solid rgba(255,255,255,0.05)">${totV||''}</td>`;
+      html += `<td class="r" style="padding:5px 5px;background:${bg};color:var(--green)">${totR>0?R(totR):''}</td>`;
+    });
+    html += `<td class="r" style="padding:5px 5px;background:rgba(126,251,179,0.12);border-left:2px solid var(--green)">${gVolBT+tVolBT}</td>`;
+    html += `<td class="r" style="padding:5px 5px;color:var(--green);background:rgba(126,251,179,0.12)">${R(gRecBT+tRecBT)}</td>`;
+    html += `</tr>`;
+  }
+
+  html += `</tbody></table></div>`;
 
   el.innerHTML = html;
 }
 
+let _skuBTShowTravel = false;
+function toggleSkuBTTravel(){ _skuBTShowTravel = !_skuBTShowTravel; renderB2BTSkuMonthly(); }
 function setSkuBTRep(r){ _skuBTRep = r; renderB2BTSkuMonthly(); }
-function setSkuBTSize(s){ _skuBTSize = s; renderB2BTSkuMonthly(); }
 function toggleBTMonths(all){ _skuBTAllMonths = all; renderB2BTSkuMonthly(); }
 function sortSkuBT(col){
   if(_skuBTSort.col === col) _skuBTSort.dir *= -1;

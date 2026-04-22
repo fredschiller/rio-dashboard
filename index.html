@@ -3296,41 +3296,88 @@ function drawVarejoCresc(){
     const vDailyStore = vd.daily_by_store || [];
     const semAtualV = D.current.semana_atual;
 
-    let days;
+    // Build full day list for the month/week (not just days with daily data)
+    let dayDias;
     if(period === 'semana'){
-      days = vDaily.filter(d => dayToWeek(d.dia) === semAtualV).sort((a,b) => a.dia.localeCompare(b.dia));
+      // Days of the current ISO week
+      const [yStr, wStr] = semAtualV.split('-W');
+      const y = parseInt(yStr), w = parseInt(wStr);
+      // First Thursday of year, then offset to Monday of target week
+      const jan4 = new Date(Date.UTC(y, 0, 4));
+      const jan4Day = jan4.getUTCDay() || 7;
+      const monday = new Date(jan4); monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1 + (w-1)*7);
+      dayDias = [];
+      for(let i=0;i<7;i++){
+        const d = new Date(monday); d.setUTCDate(monday.getUTCDate()+i);
+        dayDias.push(d.toISOString().slice(0,10));
+      }
     } else {
-      days = vDaily.filter(d => d.dia.startsWith(mesAtual)).sort((a,b) => a.dia.localeCompare(b.dia));
+      // All days of mesAtual up to today (or end of month)
+      const [y, m] = mesAtual.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      const today = new Date().toISOString().slice(0,10);
+      dayDias = [];
+      for(let i=1;i<=lastDay;i++){
+        const dia = `${mesAtual}-${String(i).padStart(2,'0')}`;
+        if(dia <= today) dayDias.push(dia);
+      }
     }
-    const dayDias = days.map(d => d.dia);
-    const labels = days.map(d => { const p=d.dia.split('-'); return p[2]+'/'+p[1]; });
+    const labels = dayDias.map(d => { const p=d.split('-'); return p[2]+'/'+p[1]; });
     const periodLabel = period==='semana' ? fW(semAtualV)+' · por dia' : fM(mesAtual)+' · por dia';
     const labelEl = document.getElementById('varejo-cresc-filter-label');
     if(labelEl) labelEl.textContent = periodLabel + repLbl;
 
-    // Get unique stores in this period
-    const storesInPeriod = [...new Set(vDailyStore.filter(d => dayDias.includes(d.dia) && (repIsAll()||repMatch(d.rep))).map(d => d.loja_clean))];
+    // Get unique stores from the month/period (use matrix_monthly so we include stores with no daily data)
+    const mmCurrent = (vd.matrix_monthly||[]).filter(m =>
+      (period==='semana' ? m.periodo===mesAtual : m.periodo===mesAtual) && (repIsAll()||repMatch(m.rep))
+    );
+    const storesInPeriod = [...new Set([
+      ...vDailyStore.filter(d => dayDias.includes(d.dia) && (repIsAll()||repMatch(d.rep))).map(d => d.loja_clean),
+      ...mmCurrent.map(m => m.loja_clean)
+    ])];
     const allStoreNames = growthTable.map(r => r.loja);
+
+    // Per-store: estimate missing days from monthly total
+    const storeMonthly = {};  // loja_clean → monthly receita for current month
+    mmCurrent.forEach(m => { storeMonthly[m.loja_clean] = (storeMonthly[m.loja_clean]||0) + m.receita; });
+
+    const storeDailyForMonth = {};  // loja_clean → {dia: receita} for ALL days in the current month with data
+    vDailyStore.filter(d => d.dia.startsWith(mesAtual) && (repIsAll()||repMatch(d.rep))).forEach(d => {
+      if(!storeDailyForMonth[d.loja_clean]) storeDailyForMonth[d.loja_clean] = {};
+      storeDailyForMonth[d.loja_clean][d.dia] = (storeDailyForMonth[d.loja_clean][d.dia]||0) + d.receita;
+    });
 
     const datasets = storesInPeriod.map(store => {
       const idx = allStoreNames.indexOf(store);
       const col = STORE_COLORS[idx >= 0 ? idx % STORE_COLORS.length : storesInPeriod.indexOf(store) % STORE_COLORS.length];
       const isSelected = varejoCrescStore === 'Todas' || store === varejoCrescStore;
+
+      const storeDaily = storeDailyForMonth[store] || {};
+      const monthlyTotal = storeMonthly[store] || 0;
+      const dailySum = Object.values(storeDaily).reduce((s,v)=>s+v, 0);
+      const missing = Math.max(0, monthlyTotal - dailySum);
+      const daysWithData = Object.keys(storeDaily);
+      const dayPerEstimate = period==='mes' ? (() => {
+        const totalDaysInMonth = new Date(...mesAtual.split('-').map((v,i)=>i===1?Number(v):Number(v)).concat(0)).getDate();
+        const missingDaysCount = totalDaysInMonth - daysWithData.length;
+        return missingDaysCount > 0 ? missing / missingDaysCount : 0;
+      })() : 0;
+
       return {
         label: store.length > 18 ? store.slice(0,18)+'…' : store,
-        data: days.map(d => {
-          const m = vDailyStore.find(e => e.dia===d.dia && e.loja_clean===store);
-          return m ? m.receita : 0;
+        data: dayDias.map(dia => {
+          if(storeDaily[dia] !== undefined) return storeDaily[dia];
+          // Fall back to per-day estimate when no daily data for this day in month
+          if(period==='mes' && !daysWithData.includes(dia)) return dayPerEstimate;
+          return 0;
         }),
         backgroundColor: col+(isSelected?'bb':'33'),
         borderRadius: 2, borderSkipped: false, stack: 'stack0',
       };
     });
 
-    // Total line (filtered by rep)
-    const totalData = days.map(d => {
-      return vDailyStore.filter(e => e.dia===d.dia && (repIsAll()||repMatch(e.rep))).reduce((s,e)=>s+e.receita,0);
-    });
+    // Total line (sum across stores per day)
+    const totalData = dayDias.map((_,i) => datasets.reduce((s,ds)=>s+(ds.data[i]||0), 0));
     datasets.push({label:'Total', data:totalData, type:'line',
       borderColor:'#e6ebe7', backgroundColor:'transparent', pointRadius:3,
       pointBackgroundColor:'#e6ebe7', borderWidth:2, tension:0.3, order:0});

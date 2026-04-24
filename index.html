@@ -429,6 +429,23 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
   <div id="section-geral">
 
   <!-- PAGE: GERAL -->
+  <!-- ⚡ Ritmo do mês (Hoje vs Ontem + MTD vs mês anterior) -->
+  <div class="g2" id="ritmo-row" style="margin-bottom:10px">
+    <div class="panel">
+      <div class="ph">
+        <div class="pt">⚡ Ritmo do dia</div>
+        <div class="pn" id="ritmo-data">—</div>
+      </div>
+      <div id="ritmo-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
+    <div class="panel">
+      <div class="ph">
+        <div class="pt">📈 Mês vs mês anterior (acumulado)</div>
+        <div class="pn" id="ritmo-mtd-hint">—</div>
+      </div>
+      <canvas id="chartRitmoMTD" height="110"></canvas>
+    </div>
+  </div>
     <div class="kpi-row kpi-6" id="kpis"></div>
 
   <!-- INSIGHTS -->
@@ -899,7 +916,7 @@ function repLabel(){ if(reps.has('Todos')) return ''; const arr=[...reps]; retur
 function repList(){ return reps.has('Todos') ? ['Lizete','Emilia','Danielle','Riô','Fred'] : [...reps]; }
 // Backward compat
 let rep = 'Todos';
-let cTrend=null, cRing=null, cDonutKPI=null, cVarejoCresc=null, cMedicoEvo=null, cSkuEvo=null;
+let cTrend=null, cRing=null, cDonutKPI=null, cVarejoCresc=null, cMedicoEvo=null, cSkuEvo=null, cRitmoMTD=null;
 
 // ── Sort state for médicos tables ──
 const medSort = {
@@ -1823,7 +1840,169 @@ function renderInsights(){
 }
 
 // ── KPI CARDS (rep+period combined) ──────────────────────────────────────────
+// ⚡ Ritmo do mês — Hoje vs Ontem + MTD vs mês anterior (acumulado)
+function renderRitmo(){
+  if(!D || !D.daily || !D.daily.rows) return;
+  const row = document.getElementById('ritmo-row'); if(!row) return;
+
+  // Filtra rows por rep (respeita seleção)
+  const repAll = repIsAll();
+  const rows = D.daily.rows.filter(r => repAll || repMatch(r.rep));
+  if(rows.length === 0){
+    document.getElementById('ritmo-cards').innerHTML = '<div style="grid-column:span 3;color:var(--muted);font-size:11px;padding:14px;text-align:center">Sem dados para este filtro.</div>';
+    if(cRitmoMTD){ cRitmoMTD.destroy(); cRitmoMTD = null; }
+    return;
+  }
+
+  // Última data com dados = "hoje" do dataset
+  const hojeStr = rows.reduce((m, r) => r.data > m ? r.data : m, rows[0].data);
+  // Penúltima data com dados = "ontem"
+  const datasUnicas = [...new Set(rows.map(r => r.data))].sort();
+  const idxHoje = datasUnicas.indexOf(hojeStr);
+  const ontemStr = idxHoje > 0 ? datasUnicas[idxHoje - 1] : null;
+
+  const aggDay = d => {
+    const rs = rows.filter(r => r.data === d);
+    return { receita: rs.reduce((s,r)=>s+(r.receita||0),0), pedidos: rs.reduce((s,r)=>s+(r.pedidos||0),0) };
+  };
+  const hoje = aggDay(hojeStr);
+  const ontem = ontemStr ? aggDay(ontemStr) : { receita: 0, pedidos: 0 };
+  const deltaR = hoje.receita - ontem.receita;
+  const deltaPct = ontem.receita > 0 ? (deltaR / ontem.receita) * 100 : null;
+  const arrow = deltaR > 0 ? '↑' : deltaR < 0 ? '↓' : '·';
+  const delColor = deltaR > 0 ? 'var(--green)' : deltaR < 0 ? 'var(--red)' : 'var(--muted)';
+
+  const fmtData = s => { const [y,m,d] = s.split('-'); return `${d}/${m}`; };
+  const dataLbl = document.getElementById('ritmo-data');
+  if(dataLbl) dataLbl.textContent = `${fmtData(hojeStr)}${ontemStr ? ' vs ' + fmtData(ontemStr) : ''}`;
+
+  const card = (lbl, val, sub, color) => `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+      <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${lbl}</div>
+      <div style="font-family:var(--display);font-size:20px;font-weight:700;line-height:1;color:${color||'var(--text)'}">${val}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:3px">${sub}</div>
+    </div>`;
+
+  document.getElementById('ritmo-cards').innerHTML =
+    card('Hoje (' + fmtData(hojeStr) + ')', R(hoje.receita), `${hoje.pedidos} pedido${hoje.pedidos===1?'':'s'}`) +
+    card('Ontem' + (ontemStr ? ' (' + fmtData(ontemStr) + ')' : ''), R(ontem.receita), `${ontem.pedidos} pedido${ontem.pedidos===1?'':'s'}`) +
+    card('Variação', (deltaR>=0?'+':'−') + R(Math.abs(deltaR)), deltaPct===null ? '—' : `${arrow} ${Math.abs(deltaPct).toFixed(1)}%`, delColor);
+
+  // ─── Gráfico MTD vs mês anterior (acumulado) ──────────────────────────
+  const [yH, mH, dH] = hojeStr.split('-').map(Number);
+  const dayHoje = dH;
+  // Mês anterior: subtrai 1 mês
+  const prevDate = new Date(yH, mH - 2, 1); // mH-2 porque mH é 1-based e Date é 0-based
+  const yP = prevDate.getFullYear();
+  const mP = prevDate.getMonth() + 1;
+  const pad = n => String(n).padStart(2,'0');
+  const mesAtualPref = `${yH}-${pad(mH)}-`;
+  const mesAntPref = `${yP}-${pad(mP)}-`;
+
+  // Soma diária por dia-do-mês
+  const sumDay = (rs) => {
+    const out = {};
+    rs.forEach(r => {
+      const d = parseInt(r.data.slice(8,10), 10);
+      out[d] = (out[d]||0) + (r.receita||0);
+    });
+    return out;
+  };
+  const atual = sumDay(rows.filter(r => r.data.startsWith(mesAtualPref)));
+  const anterior = sumDay(rows.filter(r => r.data.startsWith(mesAntPref)));
+
+  // Acumulado dia 1..dayHoje (mês atual) e 1..maxDayMesAnt (mês anterior, completo)
+  const lastDayAnt = new Date(yP, mP, 0).getDate();
+  const labels = Array.from({length: lastDayAnt}, (_,i) => i+1);
+  let accA = 0, accP = 0;
+  const dataAtual = labels.map(d => {
+    if(d > dayHoje) return null; // não mostra futuro
+    accA += (atual[d]||0);
+    return accA;
+  });
+  const dataAnt = labels.map(d => {
+    accP += (anterior[d]||0);
+    return accP;
+  });
+  // Linha anterior em duas partes: cheia até dayHoje, pontilhada depois
+  const dataAntCheio = labels.map((d,i) => d <= dayHoje ? dataAnt[i] : null);
+  const dataAntFuturo = labels.map((d,i) => d >= dayHoje ? dataAnt[i] : null);
+
+  const totalAtual = accA;
+  const totalAntMesmoDia = labels.reduce((s,d,i)=> d<=dayHoje ? s+(anterior[d]||0) : s, 0);
+  const varMtdPct = totalAntMesmoDia > 0 ? ((totalAtual - totalAntMesmoDia) / totalAntMesmoDia * 100) : null;
+  const hint = document.getElementById('ritmo-mtd-hint');
+  if(hint){
+    const sinal = varMtdPct === null ? '—' : (varMtdPct>=0?'+':'') + varMtdPct.toFixed(1) + '%';
+    const cor = varMtdPct === null ? 'var(--muted)' : varMtdPct>=0 ? 'var(--green)' : 'var(--red)';
+    hint.innerHTML = `<span style="color:${cor};font-weight:600">${sinal}</span> · ${R(totalAtual)} vs ${R(totalAntMesmoDia)}`;
+  }
+
+  if(cRitmoMTD){ cRitmoMTD.destroy(); cRitmoMTD = null; }
+  const ctx = document.getElementById('chartRitmoMTD');
+  if(!ctx) return;
+  cRitmoMTD = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: `Mês atual (${pad(mH)}/${yH})`,
+          data: dataAtual,
+          borderColor: '#7efbb3',
+          backgroundColor: 'rgba(126,251,179,0.10)',
+          borderWidth: 2,
+          tension: 0.25,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          fill: true,
+          spanGaps: false
+        },
+        {
+          label: `Mês anterior (${pad(mP)}/${yP}) · até hoje`,
+          data: dataAntCheio,
+          borderColor: '#6b756d',
+          borderWidth: 1.5,
+          borderDash: [],
+          tension: 0.25,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          fill: false
+        },
+        {
+          label: `Mês anterior (resto)`,
+          data: dataAntFuturo,
+          borderColor: '#6b756d',
+          borderWidth: 1.5,
+          borderDash: [4,4],
+          tension: 0.25,
+          pointRadius: 0,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, labels: { color: '#cfd5d0', font: { size: 9 }, boxWidth: 10, boxHeight: 2 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${R(ctx.parsed.y || 0)}`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#6b756d', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        y: { ticks: { color: '#6b756d', font: { size: 9 }, callback: v => 'R$' + (v/1000).toFixed(0) + 'k' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+      }
+    }
+  });
+}
+
 function renderKPIs(){
+  if(currentTab === 'geral') renderRitmo();
   if(dpActive){ renderCustomKPIs(); return; }
   const sl = getSlice();
   const c  = D.current||{};
@@ -4280,6 +4459,7 @@ function setPageTab(tab, el){
   if(tab==='b2btotal')  setTimeout(()=>renderB2BTotal(), 50);
   if(tab==='varejo')    setTimeout(()=>renderVarejoDash(), 50);
   if(tab==='medicos')   setTimeout(()=>renderMedicosTab(), 50);
+  if(tab==='geral')     setTimeout(()=>renderRitmo(), 50);
   setTimeout(()=>renderSkuEvo(), 60);
 }
 

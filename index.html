@@ -3436,6 +3436,9 @@ function setVarejoSub(name){
   const e = document.getElementById('vsub-estoque');
   if(c) c.style.display = name === 'comercial' ? '' : 'none';
   if(e) e.style.display = name === 'estoque' ? '' : 'none';
+  // Painel global "Evolução de vendas por produto" não faz sentido na visão de estoque
+  const evo = document.getElementById('sku-evo-panel');
+  if(evo) evo.style.display = (name === 'estoque') ? 'none' : '';
   // Recriar canvas do crescimento ao voltar pra Comercial (Chart.js precisa de canvas visível)
   if(name === 'comercial') setTimeout(() => { try { drawVarejoCresc(); } catch(_){} }, 50);
 }
@@ -4265,6 +4268,10 @@ function setPageTab(tab, el){
   if(st) st.style.display = tab==='b2btotal'  ? '' : 'none';
   if(sv) sv.style.display = tab==='varejo'    ? '' : 'none';
   if(sm) sm.style.display = tab==='medicos'   ? '' : 'none';
+  // Garante que o painel global de Evolução por produto reaparece em outras abas
+  // (e respeita a sub-aba quando estiver no Varejo)
+  const evo = document.getElementById('sku-evo-panel');
+  if(evo) evo.style.display = (tab === 'varejo' && varejoSub === 'estoque') ? 'none' : '';
   if(!D) return;
   renderMetaHero();
   renderInsights();

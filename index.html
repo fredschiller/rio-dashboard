@@ -1890,16 +1890,20 @@ function renderRitmo(){
     card('Ontem' + (ontemStr ? ' (' + fmtData(ontemStr) + ')' : ''), R(ontem.receita), `${ontem.pedidos} pedido${ontem.pedidos===1?'':'s'}`) +
     card('Variação', (deltaR>=0?'+':'−') + R(Math.abs(deltaR)), deltaPct===null ? '—' : `${arrow} ${Math.abs(deltaPct).toFixed(1)}%`, delColor);
 
-  // ─── Gráfico MTD vs mês anterior (acumulado) ──────────────────────────
+  // ─── Gráfico MTD vs mês anterior + ano anterior (acumulado) ───────────
   const [yH, mH, dH] = hojeStr.split('-').map(Number);
   const dayHoje = dH;
   // Mês anterior: subtrai 1 mês
-  const prevDate = new Date(yH, mH - 2, 1); // mH-2 porque mH é 1-based e Date é 0-based
+  const prevDate = new Date(yH, mH - 2, 1);
   const yP = prevDate.getFullYear();
   const mP = prevDate.getMonth() + 1;
+  // Mesmo mês do ano anterior
+  const yY = yH - 1;
+  const mY = mH;
   const pad = n => String(n).padStart(2,'0');
   const mesAtualPref = `${yH}-${pad(mH)}-`;
   const mesAntPref = `${yP}-${pad(mP)}-`;
+  const mesYoYPref = `${yY}-${pad(mY)}-`;
 
   // Soma diária por dia-do-mês
   const sumDay = (rs) => {
@@ -1912,32 +1916,35 @@ function renderRitmo(){
   };
   const atual = sumDay(rows.filter(r => r.data.startsWith(mesAtualPref)));
   const anterior = sumDay(rows.filter(r => r.data.startsWith(mesAntPref)));
+  const anoAnt = sumDay(rows.filter(r => r.data.startsWith(mesYoYPref)));
 
-  // Acumulado dia 1..dayHoje (mês atual) e 1..maxDayMesAnt (mês anterior, completo)
-  const lastDayAnt = new Date(yP, mP, 0).getDate();
-  const labels = Array.from({length: lastDayAnt}, (_,i) => i+1);
-  let accA = 0, accP = 0;
+  // Eixo X = dias do mês ATUAL (assim o "pareamento dia 1, dia 2..." é justo entre as séries)
+  const lastDayAtual = new Date(yH, mH, 0).getDate();
+  const labels = Array.from({length: lastDayAtual}, (_,i) => i+1);
+  let accA = 0, accP = 0, accY = 0;
   const dataAtual = labels.map(d => {
-    if(d > dayHoje) return null; // não mostra futuro
+    if(d > dayHoje) return null;
     accA += (atual[d]||0);
     return accA;
   });
-  const dataAnt = labels.map(d => {
-    accP += (anterior[d]||0);
-    return accP;
-  });
-  // Linha anterior em duas partes: cheia até dayHoje, pontilhada depois
+  const dataAnt = labels.map(d => { accP += (anterior[d]||0); return accP; });
+  const dataYoY = labels.map(d => { accY += (anoAnt[d]||0); return accY; });
   const dataAntCheio = labels.map((d,i) => d <= dayHoje ? dataAnt[i] : null);
   const dataAntFuturo = labels.map((d,i) => d >= dayHoje ? dataAnt[i] : null);
 
   const totalAtual = accA;
-  const totalAntMesmoDia = labels.reduce((s,d,i)=> d<=dayHoje ? s+(anterior[d]||0) : s, 0);
+  const totalAntMesmoDia = labels.reduce((s,d)=> d<=dayHoje ? s+(anterior[d]||0) : s, 0);
+  const totalYoYMesmoDia = labels.reduce((s,d)=> d<=dayHoje ? s+(anoAnt[d]||0) : s, 0);
   const varMtdPct = totalAntMesmoDia > 0 ? ((totalAtual - totalAntMesmoDia) / totalAntMesmoDia * 100) : null;
+  const varYoyPct = totalYoYMesmoDia > 0 ? ((totalAtual - totalYoYMesmoDia) / totalYoYMesmoDia * 100) : null;
   const hint = document.getElementById('ritmo-mtd-hint');
   if(hint){
-    const sinal = varMtdPct === null ? '—' : (varMtdPct>=0?'+':'') + varMtdPct.toFixed(1) + '%';
-    const cor = varMtdPct === null ? 'var(--muted)' : varMtdPct>=0 ? 'var(--green)' : 'var(--red)';
-    hint.innerHTML = `<span style="color:${cor};font-weight:600">${sinal}</span> · ${R(totalAtual)} vs ${R(totalAntMesmoDia)}`;
+    const fmt = (p) => {
+      if(p === null) return '<span style="color:var(--muted)">—</span>';
+      const c = p >= 0 ? 'var(--green)' : 'var(--red)';
+      return `<span style="color:${c};font-weight:600">${p>=0?'+':''}${p.toFixed(1)}%</span>`;
+    };
+    hint.innerHTML = `MoM ${fmt(varMtdPct)} · YoY ${fmt(varYoyPct)}`;
   }
 
   if(cRitmoMTD){ cRitmoMTD.destroy(); cRitmoMTD = null; }
@@ -1978,6 +1985,17 @@ function renderRitmo(){
           borderDash: [3,3],
           tension: 0.25,
           pointRadius: 0,
+          fill: false
+        },
+        {
+          label: `${pad(mY)}/${yY} (ano anterior)`,
+          data: dataYoY,
+          borderColor: '#7ab8f5',
+          borderWidth: 1.4,
+          borderDash: [6,3],
+          tension: 0.25,
+          pointRadius: 0,
+          pointHoverRadius: 3,
           fill: false
         }
       ]

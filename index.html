@@ -111,6 +111,19 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 .page-tab.on.tab-geral{border-bottom:2px solid var(--green);}
 .page-tab.on.tab-concierge{border-bottom:2px solid var(--gold);}
 .page-tab.on.tab-varejo{border-bottom:2px solid var(--violet);}
+.vsub-tabs{display:flex;gap:2px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:8px 0 10px;width:fit-content;}
+.vsub{font-family:var(--sans);font-size:10px;font-weight:500;padding:7px 14px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:all .15s;border-right:1px solid var(--border);display:flex;align-items:center;gap:5px;}
+.vsub:last-child{border-right:none;}
+.vsub:hover{color:var(--text);background:var(--bg3);}
+.vsub.on{background:var(--bg3);color:var(--text);font-weight:600;border-bottom:2px solid var(--violet);}
+.alert-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;}
+.alert-card .alert-num{font-family:var(--display);font-size:26px;font-weight:700;line-height:1;}
+.alert-card .alert-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.alert-card .alert-sub{font-size:10px;color:var(--text);opacity:.85;margin-top:2px;}
+.alert-card.crit{border-left:3px solid var(--red);}
+.alert-card.warn{border-left:3px solid var(--gold);}
+.alert-card.info{border-left:3px solid var(--blue);}
+.alert-card.ok{border-left:3px solid var(--green);}
 .page-section{display:none;}
 .page-section.on{display:contents;}
 
@@ -498,6 +511,15 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
   <!-- KPIs Varejo -->
   <div id="varejo-kpis" class="kpi-row kpi-6"></div>
   <div id="insights-varejo"></div>
+
+  <!-- Sub-abas Varejo -->
+  <div class="vsub-tabs">
+    <button class="vsub on" data-vsub="comercial" onclick="setVarejoSub('comercial')">🛒 Comercial</button>
+    <button class="vsub" data-vsub="estoque" onclick="setVarejoSub('estoque')">📦 Estoque & Reposição <span id="vsub-estoque-badge" class="bdg neg" style="font-size:8px;margin-left:4px;display:none"></span></button>
+  </div>
+
+  <!-- ═══ SUB-ABA COMERCIAL ═══ -->
+  <div id="vsub-comercial">
   <!-- Crescimento histórico -->
   <div class="panel">
     <div class="ph">
@@ -528,6 +550,12 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
       </div>
     </div>
   </div>
+  </div><!-- /vsub-comercial -->
+
+  <!-- ═══ SUB-ABA ESTOQUE & REPOSIÇÃO ═══ -->
+  <div id="vsub-estoque" style="display:none">
+  <!-- Cards de alerta (visão executiva no topo) -->
+  <div id="estoque-alerts-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px"></div>
   <!-- Recomendações estratégicas -->
   <div class="g2">
     <div class="panel">
@@ -633,6 +661,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
       </table>
     </div>
   </div>
+  </div><!-- /vsub-estoque -->
   </div><!-- /section-varejo -->
 
   <!-- ══ ABA B2B (Concierge + Site) ════════════════════════════════════════ -->
@@ -3396,9 +3425,63 @@ function renderVarejoDash(){
   renderInsights();
 }
 
+// Sub-abas Varejo (Comercial / Estoque)
+let varejoSub = 'comercial';
+function setVarejoSub(name){
+  varejoSub = name;
+  document.querySelectorAll('.vsub').forEach(b => {
+    b.classList.toggle('on', b.dataset.vsub === name);
+  });
+  const c = document.getElementById('vsub-comercial');
+  const e = document.getElementById('vsub-estoque');
+  if(c) c.style.display = name === 'comercial' ? '' : 'none';
+  if(e) e.style.display = name === 'estoque' ? '' : 'none';
+  // Recriar canvas do crescimento ao voltar pra Comercial (Chart.js precisa de canvas visível)
+  if(name === 'comercial') setTimeout(() => { try { drawVarejoCresc(); } catch(_){} }, 50);
+}
+
+function renderEstoqueAlerts(){
+  const eg = D && D.estoque_giro; if(!eg) return;
+  const row = document.getElementById('estoque-alerts-row'); if(!row) return;
+  const products = eg.products || [];
+  const recompra = eg.recompra_fabrica || [];
+  const reposicao = eg.reposicao_loja || [];
+
+  // Ruptura: produtos com cobertura total < 15 dias OU CD zerado e cobertura lojas < 30 dias
+  const ruptura = products.filter(p => {
+    const c = p.cobertura_total_dias;
+    return (c !== null && c < 15) || (p.estoque_cd === 0 && p.cobertura_lojas_dias !== null && p.cobertura_lojas_dias < 30);
+  });
+  const recUrgente = recompra.filter(r => r.urgencia === 'alta');
+  const repUrgente = reposicao.filter(r => r.urgencia === 'alta');
+  const totalAlertas = ruptura.length + recUrgente.length + repUrgente.length;
+
+  // Badge na sub-aba
+  const badge = document.getElementById('vsub-estoque-badge');
+  if(badge){
+    if(totalAlertas > 0){ badge.textContent = totalAlertas; badge.style.display = 'inline-block'; }
+    else badge.style.display = 'none';
+  }
+
+  const card = (cls, num, lbl, sub) =>
+    `<div class="alert-card ${cls}">
+       <div class="alert-num" style="color:${cls==='crit'?'var(--red)':cls==='warn'?'var(--gold)':cls==='info'?'var(--blue)':'var(--green)'}">${num}</div>
+       <div class="alert-lbl">${lbl}</div>
+       <div class="alert-sub">${sub}</div>
+     </div>`;
+
+  const snapTxt = eg.snapshot_date ? eg.snapshot_date.split('-').reverse().join('/') : '—';
+  row.innerHTML =
+    card(ruptura.length>0?'crit':'ok', ruptura.length, '🚨 Ruptura iminente', ruptura.length>0?'SKUs com &lt;15 dias de cobertura':'Estoque saudável') +
+    card(recUrgente.length>0?'crit':'ok', recUrgente.length, '🏭 Recompra urgente', recUrgente.length>0?'Pedir à fábrica esta semana':'Sem urgência') +
+    card(repUrgente.length>0?'warn':'ok', repUrgente.length, '📦 Mover do CD', repUrgente.length>0?'Lojas que CD pode socorrer':'Lojas abastecidas') +
+    card('info', products.length, '📊 SKUs no portfólio', `Snapshot ${snapTxt}`);
+}
+
 function renderEstoqueGiro(){
   const eg = D && D.estoque_giro;
   if(!eg) return;
+  renderEstoqueAlerts();
   const snapTxt = eg.snapshot_date ? `snapshot ${eg.snapshot_date.split('-').reverse().join('/')}` : '';
   ['estoque-snap','estoque-snap-1','estoque-snap-2'].forEach(id => {
     const el = document.getElementById(id);

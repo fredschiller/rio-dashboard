@@ -438,12 +438,14 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
       </div>
       <div id="ritmo-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
     </div>
-    <div class="panel">
+    <div class="panel" style="display:flex;flex-direction:column">
       <div class="ph">
         <div class="pt">📈 Mês vs mês anterior (acumulado)</div>
         <div class="pn" id="ritmo-mtd-hint">—</div>
       </div>
-      <canvas id="chartRitmoMTD" height="110"></canvas>
+      <div style="position:relative;height:170px;flex:1">
+        <canvas id="chartRitmoMTD"></canvas>
+      </div>
     </div>
   </div>
     <div class="kpi-row kpi-6" id="kpis"></div>
@@ -1947,34 +1949,33 @@ function renderRitmo(){
       labels: labels,
       datasets: [
         {
-          label: `Mês atual (${pad(mH)}/${yH})`,
+          label: `${pad(mH)}/${yH}`,
           data: dataAtual,
           borderColor: '#7efbb3',
           backgroundColor: 'rgba(126,251,179,0.10)',
           borderWidth: 2,
           tension: 0.25,
           pointRadius: 0,
-          pointHoverRadius: 4,
+          pointHoverRadius: 3,
           fill: true,
           spanGaps: false
         },
         {
-          label: `Mês anterior (${pad(mP)}/${yP}) · até hoje`,
+          label: `${pad(mP)}/${yP} (até hoje)`,
           data: dataAntCheio,
-          borderColor: '#6b756d',
-          borderWidth: 1.5,
-          borderDash: [],
+          borderColor: '#9aa39c',
+          borderWidth: 1.4,
           tension: 0.25,
           pointRadius: 0,
-          pointHoverRadius: 4,
+          pointHoverRadius: 3,
           fill: false
         },
         {
-          label: `Mês anterior (resto)`,
+          label: `${pad(mP)}/${yP} (resto)`,
           data: dataAntFuturo,
           borderColor: '#6b756d',
-          borderWidth: 1.5,
-          borderDash: [4,4],
+          borderWidth: 1,
+          borderDash: [3,3],
           tension: 0.25,
           pointRadius: 0,
           fill: false
@@ -1985,17 +1986,48 @@ function renderRitmo(){
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      layout: { padding: { top: 4, right: 6, bottom: 0, left: 0 } },
       plugins: {
-        legend: { display: true, labels: { color: '#cfd5d0', font: { size: 9 }, boxWidth: 10, boxHeight: 2 } },
+        legend: {
+          display: true,
+          position: 'bottom',
+          align: 'center',
+          labels: {
+            color: '#9aa39c',
+            font: { size: 8 },
+            boxWidth: 8,
+            boxHeight: 2,
+            padding: 6,
+            usePointStyle: false
+          }
+        },
         tooltip: {
           callbacks: {
+            title: items => 'Dia ' + items[0].label,
             label: ctx => `${ctx.dataset.label}: ${R(ctx.parsed.y || 0)}`
           }
         }
       },
       scales: {
-        x: { ticks: { color: '#6b756d', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        y: { ticks: { color: '#6b756d', font: { size: 9 }, callback: v => 'R$' + (v/1000).toFixed(0) + 'k' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+        x: {
+          ticks: {
+            color: '#6b756d',
+            font: { size: 8 },
+            maxRotation: 0,
+            autoSkip: true,
+            autoSkipPadding: 12
+          },
+          grid: { display: false }
+        },
+        y: {
+          ticks: {
+            color: '#6b756d',
+            font: { size: 8 },
+            maxTicksLimit: 4,
+            callback: v => 'R$' + (v >= 1000 ? (v/1000).toFixed(0)+'k' : v.toFixed(0))
+          },
+          grid: { color: 'rgba(255,255,255,0.04)' }
+        }
       }
     }
   });

@@ -2321,8 +2321,47 @@ function _catOf(scope, r){
 
 function renderTrend(){ _buildHistorico('geral', 'chartTrend', 'trend-hint', 'cTrend'); }
 
+// Daily.rows do Varejo (Venancio) só tem dados até a última data da planilha Diário.
+// O matrix_monthly tem o total mensal real (mais atual). Pra escopos que incluem Varejo,
+// substituímos as linhas Varejo do daily por linhas sintéticas distribuídas uniformemente
+// no mês, garantindo consistência com o dado mensal canônico.
+function _dailyWithVarejoMonthly(scope){
+  const daily = (D.daily && D.daily.rows) || [];
+  const needsVarejo = ['geral','b2btotal','varejo'].includes(scope);
+  if(!needsVarejo) return daily;
+  // Tira linhas Varejo originais (incompletas) e adiciona sintéticas
+  const out = daily.filter(r => r.canal !== 'Varejo');
+  const mm = (D.venancio_detail && D.venancio_detail.matrix_monthly) || [];
+  if(!mm.length) return daily;
+  const today = new Date();
+  const monthlyByPeriodRep = {};
+  mm.forEach(m => {
+    const k = (m.periodo||'') + '|' + (m.rep||'');
+    if(!monthlyByPeriodRep[k]) monthlyByPeriodRep[k] = {receita:0, volume:0, periodo:m.periodo, rep:m.rep};
+    monthlyByPeriodRep[k].receita += m.receita || 0;
+    monthlyByPeriodRep[k].volume  += m.volume  || 0;
+  });
+  Object.values(monthlyByPeriodRep).forEach(({periodo, rep, receita: monRec, volume: monVol}) => {
+    if(!periodo || monRec <= 0) return;
+    const [y, m] = periodo.split('-').map(Number);
+    const isCurrentMonth = (today.getFullYear() === y && (today.getMonth()+1) === m);
+    const lastDay = isCurrentMonth ? today.getDate() : new Date(y, m, 0).getDate();
+    const perDayRec = monRec / lastDay;
+    const perDayVol = monVol / lastDay;
+    for(let d = 1; d <= lastDay; d++){
+      out.push({
+        data: `${periodo}-${String(d).padStart(2,'0')}`,
+        canal: 'Varejo', sub_canal: 'Varejo',
+        rep: rep, is_concierge: 0,
+        receita: perDayRec, volume: perDayVol, pedidos: 0,
+      });
+    }
+  });
+  return out;
+}
+
 function _buildHistorico(scope, canvasId, hintId, chartRefName){
-  const daily = D.daily && D.daily.rows ? D.daily.rows : [];
+  const daily = _dailyWithVarejoMonthly(scope);
   const filtered = _scopeFilter(daily.filter(r => repMatch(r.rep)), scope);
 
   // ── Define ranges (atual / período anterior / ano anterior) e granularidade ──

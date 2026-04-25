@@ -1224,8 +1224,33 @@ function render(){
 
 // Smart meta: uses avg last 3 months × 1.10 when channel grew >100% YoY, else prevYear × 1.30
 function smartMeta(yoy, tab){
-  if(!yoy || !yoy.prevRec) {
-    // No year-ago data: use avg of last 3 months from daily.rows
+  return _smartMetaGeneric(yoy, tab, 'rec');
+}
+function smartMetaVol(yoy, tab){
+  return _smartMetaGeneric(yoy, tab, 'vol');
+}
+function _smartMetaGeneric(yoy, tab, kind){
+  // kind = 'rec' (receita) | 'vol' (volume/unidades)
+  const prevKey = kind === 'rec' ? 'prevRec' : 'prevVol';
+  const yoyKey  = kind === 'rec' ? 'yoyRec'  : 'yoyVol';
+  const dailyField = kind === 'rec' ? 'receita' : 'volume';
+  // Pra Varejo, somar do matrix_monthly (canonical mensal)
+  if(tab === 'varejo'){
+    if(!yoy || !yoy[prevKey]){
+      const mm = (D.venancio_detail && D.venancio_detail.matrix_monthly) || [];
+      let mmF = mm;
+      if(!repIsAll()) mmF = mmF.filter(m => repMatch(m.rep));
+      const byMonth = {};
+      mmF.forEach(m => { byMonth[m.periodo] = (byMonth[m.periodo]||0) + (m[dailyField]||0); });
+      const months = Object.keys(byMonth).sort().slice(-3);
+      if(months.length === 0) return 0;
+      const avg3 = months.reduce((s,m) => s + byMonth[m], 0) / months.length;
+      return Math.round(avg3 * 1.10);
+    }
+    return Math.round(yoy[prevKey] * 1.30);
+  }
+  // Demais abas: usar daily.rows
+  if(!yoy || !yoy[prevKey]){
     const daily = (D.daily && D.daily.rows) || [];
     const canais = tabCanais(tab);
     const cF = r => !canais || canais.has(r.sub_canal);
@@ -1233,15 +1258,14 @@ function smartMeta(yoy, tab){
     const byMonth = {};
     daily.filter(r => cF(r) && rF(r)).forEach(r => {
       const m = r.data.slice(0,7);
-      byMonth[m] = (byMonth[m]||0) + r.receita;
+      byMonth[m] = (byMonth[m]||0) + (r[dailyField]||0);
     });
     const months = Object.keys(byMonth).sort().slice(-3);
     if(months.length === 0) return 0;
     const avg3 = months.reduce((s,m) => s + byMonth[m], 0) / months.length;
     return Math.round(avg3 * 1.10);
   }
-  // If channel grew >100% YoY, avg last 3 months × 1.10 is more realistic
-  if(yoy.yoyRec > 100) {
+  if(yoy[yoyKey] > 100){
     const daily = (D.daily && D.daily.rows) || [];
     const canais = tabCanais(tab);
     const cF = r => !canais || canais.has(r.sub_canal);
@@ -1249,16 +1273,15 @@ function smartMeta(yoy, tab){
     const byMonth = {};
     daily.filter(r => cF(r) && rF(r)).forEach(r => {
       const m = r.data.slice(0,7);
-      byMonth[m] = (byMonth[m]||0) + r.receita;
+      byMonth[m] = (byMonth[m]||0) + (r[dailyField]||0);
     });
     const months = Object.keys(byMonth).sort().slice(-3);
-    if(months.length > 0) {
+    if(months.length > 0){
       const avg3 = months.reduce((s,m) => s + byMonth[m], 0) / months.length;
       return Math.round(avg3 * 1.10);
     }
   }
-  // Normal: prevYear × 1.30
-  return Math.round(yoy.prevRec * 1.30);
+  return Math.round(yoy[prevKey] * 1.30);
 }
 
 // ── META HERO ────────────────────────────────────────────────────────────────
@@ -1545,58 +1568,91 @@ function renderMetaHero(){
   curRows = _filterByScope(curRows, tab);
   const realizadoVol = curRows.reduce((s,r) => s + (r.volume||0), 0);
 
-  // Meta volume (mesmas regras da meta receita)
+  // Meta volume — espelha exatamente a lógica de meta receita (mesma fórmula por aba/filtro)
   const m26v  = (D.metas_2026 && D.metas_2026.total_volume) || {};
   const m26vr = (D.metas_2026 && D.metas_2026.por_rep_volume) || {};
   const mesRefV = c.mes_atual;
   let metaVol = 0;
-  function _sumRepVolForMonth(monthKey){
+  function _sumRepMetaVol(monthKey){
     let s = 0;
     [...reps].forEach(r => { if(m26vr[r] && m26vr[r][monthKey]) s += m26vr[r][monthKey]; });
     return s;
   }
-  if(period === 'mes' || dpActive){
-    metaVol = repIsAll() ? (m26v[mesRefV] || 0) : _sumRepVolForMonth(mesRefV);
-  } else if(period === 'semana'){
-    const monthMeta = repIsAll() ? (m26v[mesRefV] || 0) : _sumRepVolForMonth(mesRefV);
-    metaVol = Math.round(monthMeta / 4);
-  } else { // total
-    const meses2026 = Object.keys(m26v).filter(k => k.startsWith('2026') && k <= mesRefV);
-    if(repIsAll()) meses2026.forEach(m => { metaVol += m26v[m] || 0; });
-    else meses2026.forEach(m => { metaVol += _sumRepVolForMonth(m); });
+  function _calcMetaVol(){
+    let mv = 0;
+    if(!dpActive && (period === 'mes' || period === 'semana')){
+      if(tab === 'geral'){
+        if(repIsAll()) mv = m26v[mesRefV] || 0;
+        else mv = _sumRepMetaVol(mesRefV);
+      } else if(tab === 'b2bcs' || tab === 'b2btotal' || tab === 'medicos'){
+        // Soma metas B2B vol por rep
+        if(repIsAll()) Object.values(m26vr).forEach(rm => { mv += rm[mesRefV] || 0; });
+        else [...reps].forEach(r => { if(m26vr[r] && m26vr[r][mesRefV]) mv += m26vr[r][mesRefV]; });
+        // B2B Total inclui Varejo: + Varejo ano anterior × 1.30 (em volume)
+        if(tab === 'b2btotal'){
+          const yoyV = calcYoY('varejo');
+          if(yoyV.prevVol > 0) mv += Math.round(yoyV.prevVol * 1.30);
+        }
+      } else if(tab === 'concierge'){
+        // Meta B2B vol × proporção histórica Concierge/B2B
+        const daily = (D.daily && D.daily.rows) || [];
+        const b2bAll  = daily.filter(r => r.canal === 'B2B');
+        const concAll = daily.filter(r => r.sub_canal === 'Concierge');
+        let metaB2BVol = 0;
+        if(repIsAll()) Object.values(m26vr).forEach(rm => { metaB2BVol += rm[mesRefV] || 0; });
+        else [...reps].forEach(r => { if(m26vr[r] && m26vr[r][mesRefV]) metaB2BVol += m26vr[r][mesRefV]; });
+        const filtB2B  = repIsAll() ? b2bAll  : b2bAll.filter(r => repMatch(r.rep));
+        const filtConc = repIsAll() ? concAll : concAll.filter(r => repMatch(r.rep));
+        const totB2BV  = filtB2B.reduce((s,r) => s + (r.volume||0), 0);
+        const totConcV = filtConc.reduce((s,r) => s + (r.volume||0), 0);
+        const ratio = totB2BV > 0 ? totConcV/totB2BV : 0.8;
+        mv = Math.round(metaB2BVol * ratio);
+      } else { // varejo, etc
+        mv = smartMetaVol(yoy, tab);
+      }
+      if(period === 'semana' && mv > 0) mv = Math.round(mv / 4);
+    } else if(!dpActive && period === 'total'){
+      const meses2026 = Object.keys(m26v).filter(k => k.startsWith('2026') && k <= mesRefV);
+      if(tab === 'geral'){
+        if(repIsAll()) meses2026.forEach(m => { mv += m26v[m] || 0; });
+        else meses2026.forEach(m => { mv += _sumRepMetaVol(m); });
+      } else if(tab === 'b2bcs' || tab === 'b2btotal' || tab === 'medicos' || tab === 'concierge'){
+        let metaB2BVol = 0;
+        if(repIsAll()) meses2026.forEach(m => { Object.values(m26vr).forEach(rm => { metaB2BVol += rm[m] || 0; }); });
+        else meses2026.forEach(m => { [...reps].forEach(r => { if(m26vr[r] && m26vr[r][m]) metaB2BVol += m26vr[r][m]; }); });
+        if(tab === 'concierge'){
+          const daily = (D.daily && D.daily.rows) || [];
+          const b2bAll  = daily.filter(r => r.canal === 'B2B');
+          const concAll = daily.filter(r => r.sub_canal === 'Concierge');
+          const filtB2B  = repIsAll() ? b2bAll  : b2bAll.filter(r => repMatch(r.rep));
+          const filtConc = repIsAll() ? concAll : concAll.filter(r => repMatch(r.rep));
+          const totB2BV  = filtB2B.reduce((s,r) => s + (r.volume||0), 0);
+          const totConcV = filtConc.reduce((s,r) => s + (r.volume||0), 0);
+          const ratio = totB2BV > 0 ? totConcV/totB2BV : 0.8;
+          mv = Math.round(metaB2BVol * ratio);
+        } else {
+          mv = metaB2BVol;
+        }
+        if(tab === 'b2btotal'){
+          const yoyV = calcYoY('varejo');
+          if(yoyV.prevVol > 0) mv += Math.round(yoyV.prevVol * 1.30);
+        }
+      } else {
+        mv = smartMetaVol(yoy, tab);
+        if(meses2026.length > 1) mv = Math.round(mv * meses2026.length);
+      }
+    } else if(dpActive){
+      // Período personalizado: smartMetaVol baseado em yoy do range
+      mv = smartMetaVol(yoy, tab);
+    }
+    if(mv === 0) mv = smartMetaVol(yoy, tab);
+    if(mv === 0 && realizadoVol > 0) mv = Math.round(realizadoVol * 1.15);
+    return mv;
   }
-  // Para abas != geral aplicar a mesma proporção que receita usa (meta_vol_aba ≈ meta_vol_total × razão_realizado_aba/total)
-  if(tab !== 'geral' && metaVol > 0){
-    const realizadoTotal = _filterByScope(curRows, 'geral').reduce((s,r)=>s+(r.volume||0),0);
-    if(realizadoTotal > 0) metaVol = Math.round(metaVol * (realizadoVol / realizadoTotal));
-  }
+  metaVol = _calcMetaVol();
 
-  // YoY volume — mesmo período no ano passado
-  let yoyVol = null;
-  function _yoyRange(){
-    if(dpActive && dpStart && dpEnd){
-      const ys = (parseInt(dpStart.slice(0,4))-1) + dpStart.slice(4);
-      const ye = (parseInt(dpEnd.slice(0,4))-1) + dpEnd.slice(4);
-      return [ys, ye];
-    }
-    if(period === 'mes'){
-      const ym = (parseInt(c.mes_atual.slice(0,4))-1) + c.mes_atual.slice(4);
-      return [ym + '-01', ym + '-31'];
-    }
-    if(period === 'semana'){
-      // Same week label of previous year not trivially derivable; skip
-      return null;
-    }
-    // total
-    return ['2025-01-01', '2025-12-31'];
-  }
-  const yoyR = _yoyRange();
-  if(yoyR){
-    let prevRows = _dRows.filter(r => r.data >= yoyR[0] && r.data <= yoyR[1]);
-    prevRows = _filterByScope(prevRows, tab);
-    const prevVol = prevRows.reduce((s,r) => s + (r.volume||0), 0);
-    if(prevVol > 0) yoyVol = ((realizadoVol - prevVol) / prevVol) * 100;
-  }
+  // YoY volume vem direto do calcYoY (mesma fonte da meta R$)
+  const yoyVol = (yoy && yoy.yoyVol !== undefined) ? yoy.yoyVol : null;
 
   const pctVol = metaVol > 0 ? Math.round(realizadoVol/metaVol*100) : 0;
   const fltVol = metaVol > 0 ? Math.max(0, metaVol - realizadoVol) : 0;
@@ -1692,7 +1748,10 @@ function calcYoY(tab){
     }
     const yoyRec = prevRec > 0 ? ((curRec - prevRec) / prevRec * 100) : null;
     const yoyVendas = prevVendas > 0 ? ((curVendas - prevVendas) / prevVendas * 100) : null;
-    return { curRec, prevRec, curVendas, prevVendas, yoyRec, yoyVendas, curLabel, prevLabel };
+    // Para Varejo curVendas/prevVendas já são unidades (matrix_monthly.volume)
+    const curVol = curVendas, prevVol = prevVendas;
+    const yoyVol = yoyVendas;
+    return { curRec, prevRec, curVendas, prevVendas, curVol, prevVol, yoyRec, yoyVendas, yoyVol, curLabel, prevLabel };
   }
 
   // ── All other tabs: use daily.rows filtered by channel ──
@@ -1743,9 +1802,12 @@ function calcYoY(tab){
   const prevRec = prevRows.reduce((s,r) => s + (r.receita||0), 0);
   const curVendas = curRows.reduce((s,r) => s + (r.pedidos||0), 0);
   const prevVendas = prevRows.reduce((s,r) => s + (r.pedidos||0), 0);
+  const curVol  = curRows.reduce((s,r) => s + (r.volume||0), 0);
+  const prevVol = prevRows.reduce((s,r) => s + (r.volume||0), 0);
   const yoyRec = prevRec > 0 ? ((curRec - prevRec) / prevRec * 100) : null;
   const yoyVendas = prevVendas > 0 ? ((curVendas - prevVendas) / prevVendas * 100) : null;
-  return { curRec, prevRec, curVendas, prevVendas, yoyRec, yoyVendas, curLabel, prevLabel };
+  const yoyVol = prevVol > 0 ? ((curVol - prevVol) / prevVol * 100) : null;
+  return { curRec, prevRec, curVendas, prevVendas, curVol, prevVol, yoyRec, yoyVendas, yoyVol, curLabel, prevLabel };
 }
 
 const IRRELEVANT_REPS = new Set(['Fred','Riô']);

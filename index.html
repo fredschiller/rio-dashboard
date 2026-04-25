@@ -2002,7 +2002,7 @@ function renderRitmo(){
       const c = p >= 0 ? 'var(--green)' : 'var(--red)';
       return `<span style="color:${c};font-weight:600">${p>=0?'+':''}${p.toFixed(1)}%</span>`;
     };
-    hint.innerHTML = `${metricLabel()} · MoM ${fmt(varMtdPct)} · YoY ${fmt(varYoyPct)}`;
+    hint.innerHTML = `MoM ${fmt(varMtdPct)} · YoY ${fmt(varYoyPct)}`;
   }
 
   if(cRitmoMTD){ cRitmoMTD.destroy(); cRitmoMTD = null; }

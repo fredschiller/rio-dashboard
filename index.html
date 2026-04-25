@@ -111,6 +111,11 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 .page-tab.on.tab-geral{border-bottom:2px solid var(--green);}
 .page-tab.on.tab-concierge{border-bottom:2px solid var(--gold);}
 .page-tab.on.tab-varejo{border-bottom:2px solid var(--violet);}
+.hist-tabs{display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:6px;overflow:hidden;width:fit-content;margin-bottom:8px;}
+.ht-btn{font-family:var(--sans);font-size:9px;font-weight:500;padding:5px 11px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:all .15s;border-right:1px solid var(--border);}
+.ht-btn:last-child{border-right:none;}
+.ht-btn:hover{color:var(--text);}
+.ht-btn.on{background:var(--bg3);color:var(--text);font-weight:600;}
 .vsub-tabs{display:flex;gap:2px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin:8px 0 10px;width:fit-content;}
 .vsub{font-family:var(--sans);font-size:10px;font-weight:500;padding:7px 14px;border:none;background:transparent;color:var(--muted);cursor:pointer;transition:all .15s;border-right:1px solid var(--border);display:flex;align-items:center;gap:5px;}
 .vsub:last-child{border-right:none;}
@@ -468,16 +473,12 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
         <div class="pt">📊 Histórico de Vendas</div>
         <div class="pn" id="trend-hint">—</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1">
-        <div style="display:flex;flex-direction:column">
-          <div style="font-size:8px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;text-align:center">Receita (R$)</div>
-          <div style="position:relative;height:240px;flex:1"><canvas id="chartTrend"></canvas></div>
-        </div>
-        <div style="display:flex;flex-direction:column">
-          <div style="font-size:8px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em;text-align:center">Volume (un)</div>
-          <div style="position:relative;height:240px;flex:1"><canvas id="chartTrendVol"></canvas></div>
-        </div>
+      <div class="hist-tabs">
+        <button class="ht-btn on" data-ht="receita"     onclick="setHistTab('receita')">Receita</button>
+        <button class="ht-btn"    data-ht="volume"      onclick="setHistTab('volume')">Volume</button>
+        <button class="ht-btn"    data-ht="comparativo" onclick="setHistTab('comparativo')">Comparativo</button>
       </div>
+      <div style="position:relative;height:260px;flex:1"><canvas id="chartTrend"></canvas></div>
     </div>
     <div class="panel">
       <div class="ph"><div class="pt">B2B por representante</div><div class="pn" id="rep-bars-label">acumulado</div></div>
@@ -933,6 +934,13 @@ function repList(){ return reps.has('Todos') ? ['Lizete','Emilia','Danielle','Ri
 // Backward compat
 let rep = 'Todos';
 let cTrend=null, cTrendVol=null, cRing=null, cDonutKPI=null, cVarejoCresc=null, cMedicoEvo=null, cSkuEvo=null, cRitmoMTD=null;
+let histTab = 'receita'; // 'receita' | 'volume' | 'comparativo'
+function setHistTab(name){
+  if(histTab === name) return;
+  histTab = name;
+  document.querySelectorAll('.ht-btn').forEach(b => b.classList.toggle('on', b.dataset.ht === name));
+  try { renderTrend(); } catch(e){ console.error(e); }
+}
 
 // ── Sort state for médicos tables ──
 const medSort = {
@@ -2414,8 +2422,9 @@ function renderTrend(){
   const prevVolArr = allKeys.map(k => { const pk = _shiftKey(k, 'prev'); return pk ? (aggPrev[pk]?.volume  || 0) : 0; });
   const yoyVolArr  = allKeys.map(k => { const pk = _shiftKey(k, 'yoy');  return pk ? (aggYoy[pk]?.volume   || 0) : 0; });
 
-  // Hint subtitle
-  const totalCur  = dtcArr.reduce((s,v,i)=>s+v+b2bArr[i]+varArr[i], 0);
+  // ── Totais e deltas ──
+  const totalCurArr = dtcArr.map((v,i) => v + b2bArr[i] + varArr[i]);
+  const totalCur  = totalCurArr.reduce((s,v)=>s+v, 0);
   const totalPrev = prevRecArr.reduce((s,v)=>s+v, 0);
   const totalYoy  = yoyRecArr.reduce((s,v)=>s+v, 0);
   const totalCurV  = volArr.reduce((s,v)=>s+v, 0);
@@ -2426,65 +2435,67 @@ function renderTrend(){
   const momV = totalPrevV > 0 ? ((totalCurV-totalPrevV)/totalPrevV*100) : null;
   const yoyV = totalYoyV  > 0 ? ((totalCurV-totalYoyV )/totalYoyV*100)  : null;
   const fmtP = p => p === null ? '<span style="color:var(--muted)">N/D</span>' : `<span style="color:${p>=0?'var(--green)':'var(--red)'};font-weight:600">${p>=0?'+':''}${p.toFixed(1)}%</span>`;
-  document.getElementById('trend-hint').innerHTML =
-    `${hintBase} · R$ MoM ${fmtP(momR)} · YoY ${fmtP(yoyR)} · Un MoM ${fmtP(momV)} · YoY ${fmtP(yoyV)}`;
 
-  // ── Sub-gráfico esquerdo: RECEITA (barras empilhadas + 2 linhas comparativas) ──
+  // Subtítulo dinâmico baseado na tab
+  let hintInner;
+  if(histTab === 'receita'){
+    hintInner = `${hintBase} · ${R(totalCur)} · MoM ${fmtP(momR)} · YoY ${fmtP(yoyR)}`;
+  } else if(histTab === 'volume'){
+    hintInner = `${hintBase} · ${fmtUn(totalCurV)} · MoM ${fmtP(momV)} · YoY ${fmtP(yoyV)}`;
+  } else {
+    hintInner = `${hintBase} · Atual ${R(totalCur)} · Anterior ${R(totalPrev)} · YoY ${R(totalYoy)}`;
+  }
+  document.getElementById('trend-hint').innerHTML = hintInner;
+
+  // ── Datasets + opções por tab ────────────────────────────────────────────
+  let chartType = 'bar';
+  let datasets = [];
+  let yTickCb = v => 'R$' + (v>=1000 ? (v/1000).toFixed(0)+'k' : v.toFixed(0));
+  let tooltipCb = ctx => ' '+ctx.dataset.label+': '+R(ctx.parsed.y||0);
+  let xStacked = false, yStacked = false;
+
+  if(histTab === 'receita'){
+    xStacked = yStacked = true;
+    datasets = [
+      {label:'DTC',    data:dtcArr, backgroundColor:'#f5c97acc', stack:'rev', borderRadius:3, borderSkipped:false},
+      {label:'B2B',    data:b2bArr, backgroundColor:'#7efbb3cc', stack:'rev', borderRadius:3, borderSkipped:false},
+      {label:'Varejo', data:varArr, backgroundColor:'#c4a8f5cc', stack:'rev', borderRadius:3, borderSkipped:false},
+    ];
+  } else if(histTab === 'volume'){
+    chartType = 'line';
+    datasets = [
+      {label:'Volume', data:volArr, borderColor:'#7efbb3', backgroundColor:'rgba(126,251,179,0.18)', borderWidth:2.5, tension:0.3, pointRadius:0, pointHoverRadius:4, fill:true},
+    ];
+    yTickCb = v => v>=1000 ? (v/1000).toFixed(1)+'k un' : v.toFixed(0)+' un';
+    tooltipCb = ctx => ' '+ctx.dataset.label+': '+fmtUn(ctx.parsed.y||0);
+  } else { // comparativo (receita total)
+    chartType = 'line';
+    datasets = [
+      {label:'Atual',            data:totalCurArr, borderColor:'#7efbb3', backgroundColor:'rgba(126,251,179,0.12)', borderWidth:2.6, tension:0.3, pointRadius:0, pointHoverRadius:4, fill:true,  order:1},
+      {label:'Período anterior', data:prevRecArr,  borderColor:'#9aa39c', borderWidth:1.6, tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:2},
+      {label:'Ano anterior',     data:yoyRecArr,   borderColor:'#7ab8f5', borderWidth:1.6, borderDash:[6,3], tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:2},
+    ];
+  }
+
   if(cTrend) cTrend.destroy();
   cTrend = new Chart(document.getElementById('chartTrend'),{
-    type:'bar',
-    data:{labels: dispLabels, datasets:[
-      {label:'DTC',    data:dtcArr, backgroundColor:'#f5c97abb', stack:'rev', borderRadius:2, borderSkipped:false, order:3},
-      {label:'B2B',    data:b2bArr, backgroundColor:'#7efbb3bb', stack:'rev', borderRadius:2, borderSkipped:false, order:3},
-      {label:'Varejo', data:varArr, backgroundColor:'#c4a8f5bb', stack:'rev', borderRadius:2, borderSkipped:false, order:3},
-      {type:'line', label:'Período anterior', data:prevRecArr, borderColor:'#9aa39c', borderWidth:1.4, tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, order:1},
-      {type:'line', label:'Ano anterior',     data:yoyRecArr,  borderColor:'#7ab8f5', borderWidth:1.4, borderDash:[6,3], tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, order:1},
-    ]},
+    type: chartType,
+    data: {labels: dispLabels, datasets: datasets},
     options:{responsive:true, maintainAspectRatio:false,
       interaction:{mode:'index', intersect:false},
-      layout:{padding:{top:4, right:4, bottom:0, left:0}},
+      layout:{padding:{top:6, right:6, bottom:0, left:0}},
       plugins:{
-        legend:{display:true, position:'bottom', align:'center',
-          labels:{color:'#9aa39c', font:{size:8}, boxWidth:8, boxHeight:2, padding:6, usePointStyle:false}},
-        tooltip:{backgroundColor:'#111312', borderColor:'#ffffff11', borderWidth:1, padding:7,
-          callbacks:{label:ctx=>' '+ctx.dataset.label+': '+R(ctx.parsed.y||0)}}
+        legend:{display: histTab !== 'volume', position:'bottom', align:'center',
+          labels:{color:'#9aa39c', font:{size:9}, boxWidth:10, boxHeight:3, padding:8, usePointStyle:false}},
+        tooltip:{backgroundColor:'#111312', borderColor:'#ffffff11', borderWidth:1, padding:8,
+          titleFont:{size:10}, bodyFont:{size:10}, callbacks:{label: tooltipCb}}
       },
       scales:{
-        x:{stacked:true, grid:{display:false}, ticks:{color:'#6b756d', font:{size:8}, maxRotation:0, autoSkip:true, autoSkipPadding:14}},
-        y:{stacked:true, grid:{color:'rgba(255,255,255,0.04)'},
-           ticks:{color:'#6b756d', font:{size:8}, maxTicksLimit:5,
-             callback:v=>'R$'+(v>=1000?(v/1000).toFixed(0)+'k':v.toFixed(0))}}
+        x:{stacked:xStacked, grid:{display:false}, ticks:{color:'#6b756d', font:{size:9}, maxRotation:0, autoSkip:true, autoSkipPadding:14}},
+        y:{stacked:yStacked, grid:{color:'rgba(255,255,255,0.04)'},
+           ticks:{color:'#6b756d', font:{size:9}, maxTicksLimit:6, callback: yTickCb}}
       }}
   });
-
-  // ── Sub-gráfico direito: VOLUME (3 linhas: atual + ant + yoy) ──
-  if(cTrendVol) cTrendVol.destroy();
-  const volCanvas = document.getElementById('chartTrendVol');
-  if(volCanvas){
-    cTrendVol = new Chart(volCanvas,{
-      type:'line',
-      data:{labels: dispLabels, datasets:[
-        {label:'Atual',           data:volArr,     borderColor:'#7efbb3', backgroundColor:'rgba(126,251,179,0.10)', borderWidth:2.2, tension:0.25, pointRadius:0, pointHoverRadius:3, fill:true, order:1},
-        {label:'Período anterior',data:prevVolArr, borderColor:'#9aa39c', borderWidth:1.4, tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, order:2},
-        {label:'Ano anterior',    data:yoyVolArr,  borderColor:'#7ab8f5', borderWidth:1.4, borderDash:[6,3], tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, order:2},
-      ]},
-      options:{responsive:true, maintainAspectRatio:false,
-        interaction:{mode:'index', intersect:false},
-        layout:{padding:{top:4, right:4, bottom:0, left:0}},
-        plugins:{
-          legend:{display:true, position:'bottom', align:'center',
-            labels:{color:'#9aa39c', font:{size:8}, boxWidth:8, boxHeight:2, padding:6, usePointStyle:false}},
-          tooltip:{backgroundColor:'#111312', borderColor:'#ffffff11', borderWidth:1, padding:7,
-            callbacks:{label:ctx=>' '+ctx.dataset.label+': '+fmtUn(ctx.parsed.y||0)}}
-        },
-        scales:{
-          x:{grid:{display:false}, ticks:{color:'#6b756d', font:{size:8}, maxRotation:0, autoSkip:true, autoSkipPadding:14}},
-          y:{grid:{color:'rgba(255,255,255,0.04)'},
-             ticks:{color:'#6b756d', font:{size:8}, maxTicksLimit:5,
-               callback:v=>v>=1000 ? (v/1000).toFixed(1)+'k un' : v.toFixed(0)+' un'}}
-        }}
-    });
-  }
 }
 
 // ── Aggregation helpers ───────────────────────────────────────────────────────

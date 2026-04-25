@@ -2299,6 +2299,25 @@ function _scopeFilter(rows, scope){
   else if(scope === 'varejo')    r = r.filter(x => x.canal === 'Varejo');
   return r;
 }
+// Categorias (split por canal/sub_canal) por escopo
+function _scopeCats(scope){
+  if(scope === 'b2bcs' || scope === 'medicos')
+    return [{key:'Concierge', color:'#7efbb3cc'}, {key:'Site', color:'#f5c97acc'}];
+  if(scope === 'b2btotal')
+    return [{key:'Concierge', color:'#7efbb3cc'}, {key:'Site', color:'#f5c97acc'}, {key:'Varejo', color:'#c4a8f5cc'}];
+  if(scope === 'concierge') return [{key:'Concierge', color:'#7efbb3cc'}];
+  if(scope === 'varejo')    return [{key:'Varejo',    color:'#c4a8f5cc'}];
+  // geral (default)
+  return [{key:'DTC', color:'#f5c97acc'}, {key:'B2B', color:'#7efbb3cc'}, {key:'Varejo', color:'#c4a8f5cc'}];
+}
+// Como classificar cada row na categoria correspondente
+function _catOf(scope, r){
+  if(scope === 'geral')                                   return r.canal;
+  if(scope === 'b2bcs' || scope === 'medicos' || scope === 'b2btotal') return r.sub_canal;
+  if(scope === 'concierge') return 'Concierge';
+  if(scope === 'varejo')    return 'Varejo';
+  return 'Total';
+}
 
 function renderTrend(){ _buildHistorico('geral', 'chartTrend', 'trend-hint', 'cTrend'); }
 
@@ -2370,6 +2389,10 @@ function _buildHistorico(scope, canvasId, hintId, chartRefName){
     hintBase = 'acumulado · por mês';
   }
 
+  // ── Categorias (split por canal/sub_canal conforme escopo) ─────────────────
+  const cats = _scopeCats(scope);
+  const catKeys = cats.map(c => c.key);
+
   // ── Aggregator ──────────────────────────────────────────────────────────────
   function _key(r){
     if(granularity === 'day') return r.data;
@@ -2380,8 +2403,12 @@ function _buildHistorico(scope, canvasId, hintId, chartRefName){
     const m = {};
     rows.forEach(r => {
       const k = _key(r);
-      if(!m[k]) m[k] = {DTC:0, B2B:0, Varejo:0, volume:0, receita:0};
-      m[k][r.canal] = (m[k][r.canal]||0) + (r.receita||0);
+      const cat = _catOf(scope, r);
+      if(!m[k]){
+        m[k] = {volume:0, receita:0};
+        catKeys.forEach(ck => m[k][ck] = 0);
+      }
+      if(catKeys.includes(cat)) m[k][cat] += (r.receita||0);
       m[k].volume += (r.volume||0);
       m[k].receita += (r.receita||0);
     });
@@ -2448,9 +2475,9 @@ function _buildHistorico(scope, canvasId, hintId, chartRefName){
     return 'Sem ' + k.slice(-2);
   });
 
-  const dtcArr = allKeys.map(k => aggCur[k]?.DTC || 0);
-  const b2bArr = allKeys.map(k => aggCur[k]?.B2B || 0);
-  const varArr = allKeys.map(k => aggCur[k]?.Varejo || 0);
+  // Arrays por categoria (split dinâmico)
+  const catArrs = {};
+  catKeys.forEach(ck => { catArrs[ck] = allKeys.map(k => aggCur[k]?.[ck] || 0); });
   const volArr = allKeys.map(k => aggCur[k]?.volume || 0);
   const prevRecArr = allKeys.map(k => { const pk = _shiftKey(k, 'prev'); return pk ? (aggPrev[pk]?.receita || 0) : 0; });
   const yoyRecArr  = allKeys.map(k => { const pk = _shiftKey(k, 'yoy');  return pk ? (aggYoy[pk]?.receita  || 0) : 0; });
@@ -2458,7 +2485,7 @@ function _buildHistorico(scope, canvasId, hintId, chartRefName){
   const yoyVolArr  = allKeys.map(k => { const pk = _shiftKey(k, 'yoy');  return pk ? (aggYoy[pk]?.volume   || 0) : 0; });
 
   // ── Totais e deltas ──
-  const totalCurArr = dtcArr.map((v,i) => v + b2bArr[i] + varArr[i]);
+  const totalCurArr = allKeys.map((_,i) => catKeys.reduce((s,ck) => s + catArrs[ck][i], 0));
   const totalCur  = totalCurArr.reduce((s,v)=>s+v, 0);
   const totalPrev = prevRecArr.reduce((s,v)=>s+v, 0);
   const totalYoy  = yoyRecArr.reduce((s,v)=>s+v, 0);
@@ -2490,11 +2517,15 @@ function _buildHistorico(scope, canvasId, hintId, chartRefName){
 
   if(histTab === 'receita'){
     xStacked = yStacked = true;
-    datasets = [
-      {label:'DTC',    data:dtcArr, backgroundColor:'#f5c97acc', stack:'rev', borderRadius:3, borderSkipped:false, order:5},
-      {label:'B2B',    data:b2bArr, backgroundColor:'#7efbb3cc', stack:'rev', borderRadius:3, borderSkipped:false, order:5},
-      {label:'Varejo', data:varArr, backgroundColor:'#c4a8f5cc', stack:'rev', borderRadius:3, borderSkipped:false, order:5},
-    ];
+    datasets = cats.map(c => ({
+      label: c.key,
+      data: catArrs[c.key],
+      backgroundColor: c.color,
+      stack: 'rev',
+      borderRadius: 3,
+      borderSkipped: false,
+      order: 5,
+    }));
     if(histCompare){
       datasets.push(
         {type:'line', label:'Período anterior', data:prevRecArr, borderColor:'#9aa39c', borderWidth:1.6, tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:1},

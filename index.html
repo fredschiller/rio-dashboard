@@ -2299,14 +2299,24 @@ function _scopeFilter(rows, scope){
   else if(scope === 'varejo')    r = r.filter(x => x.canal === 'Varejo');
   return r;
 }
-// Categorias (split por canal/sub_canal) por escopo
+// Categorias (split por canal/sub_canal/loja) por escopo
 function _scopeCats(scope){
   if(scope === 'b2bcs' || scope === 'medicos')
     return [{key:'Concierge', color:'#7efbb3cc'}, {key:'Site', color:'#f5c97acc'}];
   if(scope === 'b2btotal')
     return [{key:'Concierge', color:'#7efbb3cc'}, {key:'Site', color:'#f5c97acc'}, {key:'Varejo', color:'#c4a8f5cc'}];
   if(scope === 'concierge') return [{key:'Concierge', color:'#7efbb3cc'}];
-  if(scope === 'varejo')    return [{key:'Varejo',    color:'#c4a8f5cc'}];
+  if(scope === 'varejo'){
+    // Split por loja (dinâmico, conforme reps selecionadas)
+    const stores = (D.venancio_detail && D.venancio_detail.stores) || [];
+    let s = stores;
+    if(!repIsAll()) s = s.filter(x => repMatch(x.rep));
+    const palette = ['#7efbb3cc','#f5c97acc','#c4a8f5cc','#7ab8f5cc','#f5877acc','#e6ebe7cc','#9aa39ccc','#dd88aacc'];
+    return s.map((st, i) => ({
+      key: st.loja_clean || st.loja,
+      color: palette[i % palette.length],
+    }));
+  }
   // geral (default)
   return [{key:'DTC', color:'#f5c97acc'}, {key:'B2B', color:'#7efbb3cc'}, {key:'Varejo', color:'#c4a8f5cc'}];
 }
@@ -2315,7 +2325,7 @@ function _catOf(scope, r){
   if(scope === 'geral')                                   return r.canal;
   if(scope === 'b2bcs' || scope === 'medicos' || scope === 'b2btotal') return r.sub_canal;
   if(scope === 'concierge') return 'Concierge';
-  if(scope === 'varejo')    return 'Varejo';
+  if(scope === 'varejo')    return r.loja || 'Varejo';
   return 'Total';
 }
 
@@ -2334,14 +2344,16 @@ function _dailyWithVarejoMonthly(scope){
   const mm = (D.venancio_detail && D.venancio_detail.matrix_monthly) || [];
   if(!mm.length) return daily;
   const today = new Date();
-  const monthlyByPeriodRep = {};
+  // Agrupa por (periodo, rep, loja) — preserva info de loja para split no gráfico
+  const monthlyByKey = {};
   mm.forEach(m => {
-    const k = (m.periodo||'') + '|' + (m.rep||'');
-    if(!monthlyByPeriodRep[k]) monthlyByPeriodRep[k] = {receita:0, volume:0, periodo:m.periodo, rep:m.rep};
-    monthlyByPeriodRep[k].receita += m.receita || 0;
-    monthlyByPeriodRep[k].volume  += m.volume  || 0;
+    const lojaKey = m.loja_clean || m.loja || '';
+    const k = (m.periodo||'') + '|' + (m.rep||'') + '|' + lojaKey;
+    if(!monthlyByKey[k]) monthlyByKey[k] = {receita:0, volume:0, periodo:m.periodo, rep:m.rep, loja:lojaKey};
+    monthlyByKey[k].receita += m.receita || 0;
+    monthlyByKey[k].volume  += m.volume  || 0;
   });
-  Object.values(monthlyByPeriodRep).forEach(({periodo, rep, receita: monRec, volume: monVol}) => {
+  Object.values(monthlyByKey).forEach(({periodo, rep, loja, receita: monRec, volume: monVol}) => {
     if(!periodo || monRec <= 0) return;
     const [y, m] = periodo.split('-').map(Number);
     const isCurrentMonth = (today.getFullYear() === y && (today.getMonth()+1) === m);
@@ -2354,6 +2366,7 @@ function _dailyWithVarejoMonthly(scope){
         canal: 'Varejo', sub_canal: 'Varejo',
         rep: rep, is_concierge: 0,
         receita: perDayRec, volume: perDayVol, pedidos: 0,
+        loja: loja,
       });
     }
   });

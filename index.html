@@ -4098,8 +4098,57 @@ function renderVarejoDash(){
   renderVarejoKPIs();
   renderVarejoSkuTable();
   drawVarejoCresc();
+  renderVarejoLojas();
   renderEstoqueGiro();
   renderInsights();
+}
+
+function renderVarejoLojas(){
+  // Popula a tabela "Lojas" usando matrix_monthly (canonical mensal) — não daily,
+  // que pra Varejo é incompleto.
+  const vd = D.venancio_detail || {};
+  const mm = vd.matrix_monthly || [];
+  const stores = vd.stores || [];
+  const mesAtual = (D.current && D.current.mes_atual) || '';
+  let storeData = [];
+  if(period === 'mes' || dpActive){
+    let mmFiltered;
+    if(dpActive && dpStart && dpEnd){
+      const startM = dpStart.slice(0,7);
+      const endM   = dpEnd.slice(0,7);
+      mmFiltered = mm.filter(m => m.periodo >= startM && m.periodo <= endM);
+    } else {
+      mmFiltered = mm.filter(m => m.periodo === mesAtual);
+    }
+    if(!repIsAll()) mmFiltered = mmFiltered.filter(m => repMatch(m.rep));
+    const byLoja = {};
+    mmFiltered.forEach(m => {
+      const loja = m.loja_clean || m.loja || 'N/A';
+      if(!byLoja[loja]) byLoja[loja] = {loja, receita: 0, volume: 0};
+      byLoja[loja].receita += m.receita || 0;
+      byLoja[loja].volume  += m.volume  || 0;
+    });
+    storeData = Object.values(byLoja).sort((a,b) => b.receita - a.receita);
+  } else if(period === 'semana'){
+    let mmFiltered = mm.filter(m => m.periodo === mesAtual);
+    if(!repIsAll()) mmFiltered = mmFiltered.filter(m => repMatch(m.rep));
+    const byLoja = {};
+    mmFiltered.forEach(m => {
+      const loja = m.loja_clean || m.loja || 'N/A';
+      if(!byLoja[loja]) byLoja[loja] = {loja, receita: 0, volume: 0};
+      byLoja[loja].receita += (m.receita || 0) / 4;
+      byLoja[loja].volume  += (m.volume  || 0) / 4;
+    });
+    storeData = Object.values(byLoja).sort((a,b) => b.receita - a.receita);
+  } else {
+    let s = stores;
+    if(!repIsAll()) s = s.filter(x => repMatch(x.rep));
+    storeData = s.map(x => ({loja: x.loja_clean || x.loja, receita: x.receita || 0, volume: x.volume || 0}))
+                 .sort((a,b) => b.receita - a.receita);
+  }
+  _lojaData = storeData;
+  _lojaSort = {col: 'receita', asc: false};
+  renderLojaRows(storeData);
 }
 
 // Sub-abas Varejo (Comercial / Estoque)

@@ -442,24 +442,13 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
   <div id="section-geral">
 
   <!-- PAGE: GERAL -->
-  <!-- ⚡ Ritmo do mês (Hoje vs Ontem + MTD vs mês anterior) -->
-  <div class="g2" id="ritmo-row" style="margin-bottom:10px">
-    <div class="panel">
-      <div class="ph">
-        <div class="pt">⚡ Ritmo do dia</div>
-        <div class="pn" id="ritmo-data">—</div>
-      </div>
-      <div id="ritmo-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+  <!-- ⚡ Ritmo do dia (Hoje vs Ontem) -->
+  <div class="panel" id="ritmo-row" style="margin-bottom:10px">
+    <div class="ph">
+      <div class="pt">⚡ Ritmo do dia</div>
+      <div class="pn" id="ritmo-data">—</div>
     </div>
-    <div class="panel" style="display:flex;flex-direction:column">
-      <div class="ph">
-        <div class="pt">📈 Mês vs mês anterior (acumulado)</div>
-        <div class="pn" id="ritmo-mtd-hint">—</div>
-      </div>
-      <div style="position:relative;height:170px;flex:1">
-        <canvas id="chartRitmoMTD"></canvas>
-      </div>
-    </div>
+    <div id="ritmo-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
   </div>
     <div class="kpi-row kpi-6" id="kpis"></div>
 
@@ -472,11 +461,16 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
     <div id="insights-list" class="insights-list"></div>
   </div>
 
-  <!-- ROW 1: Trend + B2B por rep + Top médicos -->
+  <!-- ROW 1: Histórico de Vendas + B2B por rep + Top médicos -->
   <div class="g21">
-    <div class="panel">
-      <div class="ph"><div class="pt">Receita por canal</div><div class="pn" id="trend-hint">—</div></div>
-      <canvas id="chartTrend" height="110"></canvas>
+    <div class="panel" style="display:flex;flex-direction:column">
+      <div class="ph">
+        <div class="pt">📊 Histórico de Vendas</div>
+        <div class="pn" id="trend-hint">—</div>
+      </div>
+      <div style="position:relative;height:280px;flex:1">
+        <canvas id="chartTrend"></canvas>
+      </div>
     </div>
     <div class="panel">
       <div class="ph"><div class="pt">B2B por representante</div><div class="pn" id="rep-bars-label">acumulado</div></div>
@@ -1479,40 +1473,108 @@ function renderMetaHero(){
     yoyEl.innerHTML='<span style="font-size:9px;color:var(--muted)">N/D</span>';
   }
 
-  // ── Volume — barra sobreposta + valores Un ──────────────────────────────
-  // Implementado para Geral/Mês/Todos/sem-dpActive (caso mais comum). Outros casos: '—'.
-  const isVolEligible = (tab==='geral' && period==='mes' && !dpActive && repIsAll());
+  // ── Volume — barra sobreposta + valores Un (todas abas/filtros) ─────────
   const realVolEl = document.getElementById('meta-real-vol');
   const tgtVolEl  = document.getElementById('meta-tgt-vol');
   const fltVolEl  = document.getElementById('meta-flt-vol');
   const yoyVolEl  = document.getElementById('meta-yoy-vol');
   const barVolEl  = document.getElementById('meta-thermo-bar-vol');
-  if(isVolEligible){
-    const realizadoVol = c.volume_total_mes || 0;
-    const metaVol      = c.meta_vol_mes || 0;
-    const yoyVol       = c.yoy_vol;
-    const pctVol       = metaVol > 0 ? Math.round(realizadoVol/metaVol*100) : 0;
-    const fltVol       = metaVol > 0 ? Math.max(0, metaVol - realizadoVol) : 0;
-    const colVol       = pctVol >= 80 ? '#7efbb3' : pctVol >= 50 ? '#f5c97a' : '#f5877a';
-    barVolEl.style.width = Math.min(100, pctVol) + '%';
-    barVolEl.style.background = colVol;
-    document.getElementById('meta-thermo-pct').innerHTML = `<span style="opacity:.85">R$ ${pct}%</span> <span style="opacity:.55">·</span> <span style="font-weight:700">Un ${pctVol}%</span>`;
-    realVolEl.textContent = fmtUn(realizadoVol);
-    tgtVolEl.textContent  = fmtUn(metaVol);
-    fltVolEl.textContent  = fltVol > 0 ? fmtUn(fltVol) : '✓ Batida';
-    fltVolEl.style.color  = fltVol > 0 ? 'var(--muted)' : 'var(--green)';
-    if(yoyVol !== null && yoyVol !== undefined){
-      const yoyVolUp = yoyVol >= 0;
-      yoyVolEl.innerHTML = `<span class="bdg ${yoyVolUp?'up':'dn'}">${yoyVolUp?'▲':'▼'}${Math.abs(yoyVol).toFixed(0)}%</span>`;
-    } else {
-      yoyVolEl.innerHTML = '<span style="font-size:9px;color:var(--muted)">N/D</span>';
-    }
+
+  // Filtro de daily rows pelo escopo (período + aba + reps)
+  const _dRows = (D.daily && D.daily.rows) || [];
+  function _filterByScope(rows, scope){
+    let r = rows;
+    if(scope === 'concierge')      r = r.filter(x => x.is_concierge === 1);
+    else if(scope === 'b2bcs' || scope === 'medicos') r = r.filter(x => x.canal === 'B2B');
+    else if(scope === 'b2btotal')  r = r.filter(x => x.canal === 'B2B' || x.canal === 'Varejo');
+    else if(scope === 'varejo')    r = r.filter(x => x.canal === 'Varejo');
+    if(!repIsAll())                r = r.filter(x => repMatch(x.rep));
+    return r;
+  }
+  // Realizado volume (mesmo recorte da receita)
+  let curRows;
+  if(dpActive && dpStart && dpEnd){
+    curRows = _dRows.filter(r => r.data >= dpStart && r.data <= dpEnd);
+  } else if(period === 'mes'){
+    curRows = _dRows.filter(r => r.data.startsWith(c.mes_atual));
+  } else if(period === 'semana'){
+    curRows = _dRows.filter(r => dayToWeek(r.data) === c.semana_atual);
   } else {
-    barVolEl.style.width = '0%';
-    realVolEl.textContent = '—';
-    tgtVolEl.textContent  = '—';
-    fltVolEl.textContent  = '—';
-    yoyVolEl.innerHTML    = '<span style="font-size:9px;color:var(--muted)">—</span>';
+    curRows = _dRows.filter(r => r.data >= '2026-01-01');
+  }
+  curRows = _filterByScope(curRows, tab);
+  const realizadoVol = curRows.reduce((s,r) => s + (r.volume||0), 0);
+
+  // Meta volume (mesmas regras da meta receita)
+  const m26v  = (D.metas_2026 && D.metas_2026.total_volume) || {};
+  const m26vr = (D.metas_2026 && D.metas_2026.por_rep_volume) || {};
+  const mesRefV = c.mes_atual;
+  let metaVol = 0;
+  function _sumRepVolForMonth(monthKey){
+    let s = 0;
+    [...reps].forEach(r => { if(m26vr[r] && m26vr[r][monthKey]) s += m26vr[r][monthKey]; });
+    return s;
+  }
+  if(period === 'mes' || dpActive){
+    metaVol = repIsAll() ? (m26v[mesRefV] || 0) : _sumRepVolForMonth(mesRefV);
+  } else if(period === 'semana'){
+    const monthMeta = repIsAll() ? (m26v[mesRefV] || 0) : _sumRepVolForMonth(mesRefV);
+    metaVol = Math.round(monthMeta / 4);
+  } else { // total
+    const meses2026 = Object.keys(m26v).filter(k => k.startsWith('2026') && k <= mesRefV);
+    if(repIsAll()) meses2026.forEach(m => { metaVol += m26v[m] || 0; });
+    else meses2026.forEach(m => { metaVol += _sumRepVolForMonth(m); });
+  }
+  // Para abas != geral aplicar a mesma proporção que receita usa (meta_vol_aba ≈ meta_vol_total × razão_realizado_aba/total)
+  if(tab !== 'geral' && metaVol > 0){
+    const realizadoTotal = _filterByScope(curRows, 'geral').reduce((s,r)=>s+(r.volume||0),0);
+    if(realizadoTotal > 0) metaVol = Math.round(metaVol * (realizadoVol / realizadoTotal));
+  }
+
+  // YoY volume — mesmo período no ano passado
+  let yoyVol = null;
+  function _yoyRange(){
+    if(dpActive && dpStart && dpEnd){
+      const ys = (parseInt(dpStart.slice(0,4))-1) + dpStart.slice(4);
+      const ye = (parseInt(dpEnd.slice(0,4))-1) + dpEnd.slice(4);
+      return [ys, ye];
+    }
+    if(period === 'mes'){
+      const ym = (parseInt(c.mes_atual.slice(0,4))-1) + c.mes_atual.slice(4);
+      return [ym + '-01', ym + '-31'];
+    }
+    if(period === 'semana'){
+      // Same week label of previous year not trivially derivable; skip
+      return null;
+    }
+    // total
+    return ['2025-01-01', '2025-12-31'];
+  }
+  const yoyR = _yoyRange();
+  if(yoyR){
+    let prevRows = _dRows.filter(r => r.data >= yoyR[0] && r.data <= yoyR[1]);
+    prevRows = _filterByScope(prevRows, tab);
+    const prevVol = prevRows.reduce((s,r) => s + (r.volume||0), 0);
+    if(prevVol > 0) yoyVol = ((realizadoVol - prevVol) / prevVol) * 100;
+  }
+
+  const pctVol = metaVol > 0 ? Math.round(realizadoVol/metaVol*100) : 0;
+  const fltVol = metaVol > 0 ? Math.max(0, metaVol - realizadoVol) : 0;
+  const colVol = pctVol >= 80 ? '#7efbb3' : pctVol >= 50 ? '#f5c97a' : '#f5877a';
+  barVolEl.style.width = Math.min(100, pctVol) + '%';
+  barVolEl.style.background = colVol;
+  if(metaVol > 0){
+    document.getElementById('meta-thermo-pct').innerHTML = `<span style="opacity:.85">R$ ${pct}%</span> <span style="opacity:.55">·</span> <span style="font-weight:700">Un ${pctVol}%</span>`;
+  }
+  realVolEl.textContent = fmtUn(realizadoVol);
+  tgtVolEl.textContent  = metaVol > 0 ? fmtUn(metaVol) : '—';
+  fltVolEl.textContent  = metaVol > 0 ? (fltVol > 0 ? fmtUn(fltVol) : '✓ Batida') : '—';
+  fltVolEl.style.color  = (metaVol > 0 && fltVol === 0) ? 'var(--green)' : 'var(--muted)';
+  if(yoyVol !== null){
+    const yoyVolUp = yoyVol >= 0;
+    yoyVolEl.innerHTML = `<span class="bdg ${yoyVolUp?'up':'dn'}">${yoyVolUp?'▲':'▼'}${Math.abs(yoyVol).toFixed(0)}%</span>`;
+  } else {
+    yoyVolEl.innerHTML = '<span style="font-size:9px;color:var(--muted)">N/D</span>';
   }
 
   // Ring
@@ -2188,89 +2250,214 @@ function renderMixKPI(mix){
     </div>`).join('');
 }
 
-// ── TREND CHART ───────────────────────────────────────────────────────────────
+// ── HISTÓRICO DE VENDAS (substitui antigo Trend) ──────────────────────────────
+// Barras empilhadas por canal (receita) + linhas (volume + comparativos MoM/YoY)
 function renderTrend(){
   const daily = D.daily && D.daily.rows ? D.daily.rows : [];
-  const canals = ['DTC','B2B','Varejo'];
-  const _vol = isVol();
-  const valKey = _vol ? 'volume' : 'receita';
+  const filtered = daily.filter(r => repMatch(r.rep));
 
-  // Determine granularity and data source
-  let labels=[], datasets_data={DTC:[],B2B:[],Varejo:[]};
-
-  if(!dpActive && period==='total'){
-    // Monthly — use pre-computed monthly_trend (com _vol)
-    const t = D.monthly_trend;
-    const sufx = _vol ? '_vol' : '';
-    document.getElementById('trend-hint').textContent = fM(t[0].mes)+' – '+fM(t[t.length-1].mes);
-    labels = t.map(r=>fM(r.mes));
-    datasets_data.DTC    = t.map(r => r['DTC'+sufx]||0);
-    datasets_data.B2B    = t.map(r => r['B2B'+sufx]||0);
-    datasets_data.Varejo = t.map(r => r['Varejo'+sufx]||0);
-
-  } else if(!dpActive && period==='mes'){
-    // Daily within current month
-    const mes = D.current.mes_atual;
-    const rows = daily.filter(r => r.data.startsWith(mes) && repMatch(r.rep));
-    const grouped = groupByDay(rows, valKey);
-    labels = grouped.map(g=>g.label);
-    datasets_data.DTC    = grouped.map(g=>g.DTC||0);
-    datasets_data.B2B    = grouped.map(g=>g.B2B||0);
-    datasets_data.Varejo = grouped.map(g=>g.Varejo||0);
-    document.getElementById('trend-hint').textContent = fM(mes)+' · por dia';
-
-  } else if(!dpActive && period==='semana'){
-    // Daily within current week
-    const sem = D.current.semana_atual;
-    const rows = daily.filter(r => dayToWeek(r.data)===sem && repMatch(r.rep));
-    const grouped = groupByDay(rows, valKey);
-    labels = grouped.map(g=>g.label);
-    datasets_data.DTC    = grouped.map(g=>g.DTC||0);
-    datasets_data.B2B    = grouped.map(g=>g.B2B||0);
-    datasets_data.Varejo = grouped.map(g=>g.Varejo||0);
-    document.getElementById('trend-hint').textContent = fW(sem)+' · por dia';
-
-  } else if(dpActive){
-    // Custom period — auto granularity based on range length
-    const days = Math.round((new Date(dpEnd)-new Date(dpStart))/86400000)+1;
-    const rows = daily.filter(r => r.data>=dpStart && r.data<=dpEnd && repMatch(r.rep));
-    let grouped;
-    if(days<=14){
-      grouped = groupByDay(rows, valKey);
-      document.getElementById('trend-hint').textContent = formatDate(dpStart)+' – '+formatDate(dpEnd)+' · por dia';
-    } else if(days<=90){
-      grouped = groupByWeek(rows, valKey);
-      document.getElementById('trend-hint').textContent = formatDate(dpStart)+' – '+formatDate(dpEnd)+' · por semana';
-    } else {
-      grouped = groupByMonth(rows, valKey);
-      document.getElementById('trend-hint').textContent = formatDate(dpStart)+' – '+formatDate(dpEnd)+' · por mês';
-    }
-    labels = grouped.map(g=>g.label);
-    datasets_data.DTC    = grouped.map(g=>g.DTC||0);
-    datasets_data.B2B    = grouped.map(g=>g.B2B||0);
-    datasets_data.Varejo = grouped.map(g=>g.Varejo||0);
+  // ── Define ranges (atual / período anterior / ano anterior) e granularidade ──
+  let granularity, curStart, curEnd, prevStart, prevEnd, yoyStart, yoyEnd, hintBase;
+  const c = D.current || {};
+  function _shiftYear(d, n){ const [y,mm,dd] = d.split('-'); return (parseInt(y)+n) + '-' + mm + '-' + dd; }
+  function _monthRange(yyyymm){ // retorna [yyyymm-01, yyyymm-NN]
+    const [y, m] = yyyymm.split('-').map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return [`${yyyymm}-01`, `${yyyymm}-${String(last).padStart(2,'0')}`];
+  }
+  function _prevMonth(yyyymm){
+    const [y, m] = yyyymm.split('-').map(Number);
+    const d = new Date(y, m-2, 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  }
+  function _prevYearMonth(yyyymm){
+    const [y, m] = yyyymm.split('-').map(Number);
+    return `${y-1}-${String(m).padStart(2,'0')}`;
+  }
+  function _weekRange(weekLabel){
+    // weekLabel = '2026-W17'
+    const [y, w] = weekLabel.split('-W').map(Number);
+    const simple = new Date(y, 0, 1 + (w-1)*7);
+    const dow = simple.getDay();
+    const monday = new Date(simple);
+    if(dow <= 4) monday.setDate(simple.getDate() - simple.getDay() + 1);
+    else monday.setDate(simple.getDate() + 8 - simple.getDay());
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+    const fmtD = d => d.toISOString().slice(0,10);
+    return [fmtD(monday), fmtD(sunday)];
   }
 
-  const totals = labels.map((_,i) => datasets_data.DTC[i]+datasets_data.B2B[i]+datasets_data.Varejo[i]);
+  if(dpActive && dpStart && dpEnd){
+    const days = Math.round((new Date(dpEnd)-new Date(dpStart))/86400000)+1;
+    granularity = days <= 14 ? 'day' : (days <= 90 ? 'week' : 'month');
+    curStart = dpStart; curEnd = dpEnd;
+    // Período anterior = mesmo número de dias antes do dpStart
+    const prevEndD = new Date(dpStart); prevEndD.setDate(prevEndD.getDate() - 1);
+    const prevStartD = new Date(prevEndD); prevStartD.setDate(prevEndD.getDate() - (days-1));
+    prevStart = prevStartD.toISOString().slice(0,10); prevEnd = prevEndD.toISOString().slice(0,10);
+    yoyStart = _shiftYear(dpStart, -1); yoyEnd = _shiftYear(dpEnd, -1);
+    hintBase = formatDate(dpStart)+' – '+formatDate(dpEnd)+' · por '+(granularity==='day'?'dia':granularity==='week'?'semana':'mês');
+  } else if(period === 'mes'){
+    granularity = 'day';
+    [curStart, curEnd] = _monthRange(c.mes_atual);
+    [prevStart, prevEnd] = _monthRange(_prevMonth(c.mes_atual));
+    [yoyStart, yoyEnd] = _monthRange(_prevYearMonth(c.mes_atual));
+    hintBase = fM(c.mes_atual)+' · por dia';
+  } else if(period === 'semana'){
+    granularity = 'day';
+    [curStart, curEnd] = _weekRange(c.semana_atual);
+    // Semana anterior = 7 dias antes
+    const ps = new Date(curStart); ps.setDate(ps.getDate() - 7);
+    const pe = new Date(curEnd); pe.setDate(pe.getDate() - 7);
+    prevStart = ps.toISOString().slice(0,10); prevEnd = pe.toISOString().slice(0,10);
+    yoyStart = _shiftYear(curStart, -1); yoyEnd = _shiftYear(curEnd, -1);
+    hintBase = fW(c.semana_atual)+' · por dia';
+  } else { // total
+    granularity = 'month';
+    curStart = '2026-01-01'; curEnd = '2026-12-31';
+    prevStart = '2025-01-01'; prevEnd = '2025-12-31';
+    yoyStart = '2024-01-01'; yoyEnd = '2024-12-31';
+    hintBase = 'acumulado · por mês';
+  }
+
+  // ── Aggregator ──────────────────────────────────────────────────────────────
+  function _key(r){
+    if(granularity === 'day') return r.data;
+    if(granularity === 'week') return dayToWeek(r.data);
+    return r.data.slice(0,7);
+  }
+  function _aggregate(rows){
+    const m = {};
+    rows.forEach(r => {
+      const k = _key(r);
+      if(!m[k]) m[k] = {DTC:0, B2B:0, Varejo:0, volume:0, receita:0};
+      m[k][r.canal] = (m[k][r.canal]||0) + (r.receita||0);
+      m[k].volume += (r.volume||0);
+      m[k].receita += (r.receita||0);
+    });
+    return m;
+  }
+  const aggCur  = _aggregate(filtered.filter(r => r.data >= curStart && r.data <= curEnd));
+  const aggPrev = _aggregate(filtered.filter(r => r.data >= prevStart && r.data <= prevEnd));
+  const aggYoy  = _aggregate(filtered.filter(r => r.data >= yoyStart && r.data <= yoyEnd));
+
+  // ── Construir labels (eixo X) cobrindo o range atual ────────────────────────
+  const allKeys = [];
+  if(granularity === 'day'){
+    const d = new Date(curStart), end = new Date(curEnd);
+    while(d <= end){
+      allKeys.push(d.toISOString().slice(0,10));
+      d.setDate(d.getDate()+1);
+    }
+  } else if(granularity === 'month'){
+    const [ys, ms] = curStart.split('-').map(Number);
+    const [ye, me] = curEnd.split('-').map(Number);
+    let y = ys, m = ms;
+    while(y < ye || (y === ye && m <= me)){
+      allKeys.push(`${y}-${String(m).padStart(2,'0')}`);
+      m++; if(m > 12){ m = 1; y++; }
+    }
+  } else { // week — usar keys do agregado
+    Object.keys(aggCur).sort().forEach(k => allKeys.push(k));
+  }
+
+  // ── Mapear key atual → key correspondente no período anterior / YoY ─────────
+  function _shiftKey(curKey, target){
+    if(granularity === 'day'){
+      const day = curKey.slice(8);
+      if(target === 'prev'){
+        // Mesmo dia do mês anterior (para period=mes) OU dia equivalente shift do range
+        if(period === 'mes'){
+          return prevStart.slice(0,7) + '-' + day;
+        }
+        // Fallback (semana/dpActive): shift de N dias
+        const diff = period === 'semana' ? 7 :
+          Math.round((new Date(curStart) - new Date(prevStart))/86400000);
+        const d = new Date(curKey); d.setDate(d.getDate() - diff);
+        return d.toISOString().slice(0,10);
+      } else { // yoy
+        return _shiftYear(curKey, -1);
+      }
+    }
+    if(granularity === 'month'){
+      const [y, m] = curKey.split('-').map(Number);
+      if(target === 'prev'){
+        const d = new Date(y-1, m-1, 1); // total: prev = ano anterior; YoY = 2 anos
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      } else {
+        return `${y-2}-${String(m).padStart(2,'0')}`;
+      }
+    }
+    // week — sem mapeamento direto, retorna null
+    return null;
+  }
+
+  const dispLabels = allKeys.map(k => {
+    if(granularity === 'day') return k.slice(8) + '/' + k.slice(5,7);
+    if(granularity === 'month') return fM(k);
+    return 'Sem ' + k.slice(-2);
+  });
+
+  const dtcArr = allKeys.map(k => aggCur[k]?.DTC || 0);
+  const b2bArr = allKeys.map(k => aggCur[k]?.B2B || 0);
+  const varArr = allKeys.map(k => aggCur[k]?.Varejo || 0);
+  const volArr = allKeys.map(k => aggCur[k]?.volume || 0);
+  const prevRecArr = allKeys.map(k => { const pk = _shiftKey(k, 'prev'); return pk ? (aggPrev[pk]?.receita || 0) : 0; });
+  const yoyRecArr  = allKeys.map(k => { const pk = _shiftKey(k, 'yoy');  return pk ? (aggYoy[pk]?.receita  || 0) : 0; });
+  const prevVolArr = allKeys.map(k => { const pk = _shiftKey(k, 'prev'); return pk ? (aggPrev[pk]?.volume  || 0) : 0; });
+  const yoyVolArr  = allKeys.map(k => { const pk = _shiftKey(k, 'yoy');  return pk ? (aggYoy[pk]?.volume   || 0) : 0; });
+
+  // Hint subtitle
+  const totalCur  = dtcArr.reduce((s,v,i)=>s+v+b2bArr[i]+varArr[i], 0);
+  const totalPrev = prevRecArr.reduce((s,v)=>s+v, 0);
+  const totalYoy  = yoyRecArr.reduce((s,v)=>s+v, 0);
+  const totalCurV  = volArr.reduce((s,v)=>s+v, 0);
+  const totalPrevV = prevVolArr.reduce((s,v)=>s+v, 0);
+  const totalYoyV  = yoyVolArr.reduce((s,v)=>s+v, 0);
+  const momR = totalPrev > 0 ? ((totalCur-totalPrev)/totalPrev*100) : null;
+  const yoyR = totalYoy  > 0 ? ((totalCur-totalYoy )/totalYoy*100)  : null;
+  const momV = totalPrevV > 0 ? ((totalCurV-totalPrevV)/totalPrevV*100) : null;
+  const yoyV = totalYoyV  > 0 ? ((totalCurV-totalYoyV )/totalYoyV*100)  : null;
+  const fmtP = p => p === null ? '<span style="color:var(--muted)">N/D</span>' : `<span style="color:${p>=0?'var(--green)':'var(--red)'};font-weight:600">${p>=0?'+':''}${p.toFixed(1)}%</span>`;
+  document.getElementById('trend-hint').innerHTML =
+    `${hintBase} · R$ MoM ${fmtP(momR)} · YoY ${fmtP(yoyR)} · Un MoM ${fmtP(momV)} · YoY ${fmtP(yoyV)}`;
 
   if(cTrend) cTrend.destroy();
   cTrend = new Chart(document.getElementById('chartTrend'),{
     type:'bar',
-    data:{labels, datasets:[
-      {label:'DTC',   data:datasets_data.DTC,   backgroundColor:'#f5c97abb',borderRadius:2,borderSkipped:false},
-      {label:'B2B',   data:datasets_data.B2B,   backgroundColor:'#7efbb3bb',borderRadius:2,borderSkipped:false},
-      {label:'Varejo',data:datasets_data.Varejo, backgroundColor:'#c4a8f5bb',borderRadius:2,borderSkipped:false},
-      {label:'Total', type:'line',data:totals,borderColor:'#ffffff22',backgroundColor:'transparent',
-       pointRadius:1.5,pointBackgroundColor:'#ffffff55',borderWidth:1.5,tension:0.3},
+    data:{labels: dispLabels, datasets:[
+      // Barras empilhadas — receita por canal (atual)
+      {label:'DTC',    data:dtcArr, backgroundColor:'#f5c97abb', stack:'rev', yAxisID:'y', borderRadius:2, borderSkipped:false, order:5},
+      {label:'B2B',    data:b2bArr, backgroundColor:'#7efbb3bb', stack:'rev', yAxisID:'y', borderRadius:2, borderSkipped:false, order:5},
+      {label:'Varejo', data:varArr, backgroundColor:'#c4a8f5bb', stack:'rev', yAxisID:'y', borderRadius:2, borderSkipped:false, order:5},
+      // Comparativos receita (linhas tracejadas)
+      {type:'line', label:'R$ período ant.', data:prevRecArr, borderColor:'#9aa39c', borderWidth:1.4, tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, yAxisID:'y', order:3},
+      {type:'line', label:'R$ ano anterior', data:yoyRecArr,  borderColor:'#7ab8f5', borderWidth:1.4, borderDash:[6,3], tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, yAxisID:'y', order:3},
+      // Volume (linhas no eixo Y direito)
+      {type:'line', label:'Un atual',        data:volArr,     borderColor:'#7efbb3', borderWidth:2.2, tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, yAxisID:'y1', order:1},
+      {type:'line', label:'Un período ant.', data:prevVolArr, borderColor:'#9aa39c', borderWidth:1.2, borderDash:[2,3], tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, yAxisID:'y1', order:2},
+      {type:'line', label:'Un ano ant.',     data:yoyVolArr,  borderColor:'#7ab8f5', borderWidth:1.2, borderDash:[2,3], tension:0.25, pointRadius:0, pointHoverRadius:3, fill:false, yAxisID:'y1', order:2},
     ]},
-    options:{responsive:true,maintainAspectRatio:true,
-      interaction:{mode:'index',intersect:false},
-      plugins:{legend:{position:'top',align:'end',labels:{boxWidth:7,padding:8,usePointStyle:true,pointStyleWidth:5,font:{size:9}}},
-        tooltip:{backgroundColor:'#111312',borderColor:'#ffffff11',borderWidth:1,padding:7,
-          callbacks:{label:ctx=>' '+ctx.dataset.label+': '+fmtMetric(ctx.parsed.y)}}},
+    options:{responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      layout:{padding:{top:4, right:6, bottom:0, left:0}},
+      plugins:{
+        legend:{display:true, position:'bottom', align:'center',
+          labels:{color:'#9aa39c', font:{size:8}, boxWidth:8, boxHeight:2, padding:6, usePointStyle:false}},
+        tooltip:{backgroundColor:'#111312', borderColor:'#ffffff11', borderWidth:1, padding:7,
+          callbacks:{label:ctx=>{
+            const v = ctx.parsed.y || 0;
+            const isUn = ['Un atual','Un período ant.','Un ano ant.'].includes(ctx.dataset.label);
+            return ' '+ctx.dataset.label+': '+(isUn ? fmtUn(v) : R(v));
+          }}}
+      },
       scales:{
-        x:{stacked:true,grid:{color:'#ffffff05'},ticks:{maxRotation:45,maxTicksLimit:20,font:{size:9}}},
-        y:{stacked:true,grid:{color:'#ffffff05'},ticks:{callback:v=>fmtMetric(v),font:{size:9}}}}}
+        x:{stacked:true, grid:{display:false}, ticks:{color:'#6b756d', font:{size:8}, maxRotation:0, autoSkip:true, autoSkipPadding:14}},
+        y:{stacked:true, position:'left', grid:{color:'rgba(255,255,255,0.04)'},
+           ticks:{color:'#6b756d', font:{size:8}, callback:v=>'R$'+(v>=1000?(v/1000).toFixed(0)+'k':v.toFixed(0))}},
+        y1:{position:'right', grid:{display:false},
+           ticks:{color:'#7efbb3', font:{size:8}, callback:v=>v.toFixed(0)+' un'}}
+      }}
   });
 }
 

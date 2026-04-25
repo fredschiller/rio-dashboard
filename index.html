@@ -473,10 +473,15 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
         <div class="pt">📊 Histórico de Vendas</div>
         <div class="pn" id="trend-hint">—</div>
       </div>
-      <div class="hist-tabs">
-        <button class="ht-btn on" data-ht="receita"     onclick="setHistTab('receita')">Receita</button>
-        <button class="ht-btn"    data-ht="volume"      onclick="setHistTab('volume')">Volume</button>
-        <button class="ht-btn"    data-ht="comparativo" onclick="setHistTab('comparativo')">Comparativo</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:10px">
+        <div class="hist-tabs" style="margin-bottom:0">
+          <button class="ht-btn on" data-ht="receita" onclick="setHistTab('receita')">Receita</button>
+          <button class="ht-btn"    data-ht="volume"  onclick="setHistTab('volume')">Volume</button>
+        </div>
+        <button id="ht-cmp" class="ht-btn" onclick="toggleHistCompare()" style="border:1px solid var(--border);border-radius:6px;background:var(--bg);padding:5px 11px;display:flex;align-items:center;gap:6px;font-size:9px">
+          <span id="ht-cmp-dot" style="width:8px;height:8px;border-radius:50%;background:var(--muted);transition:background .2s"></span>
+          <span>Comparativo</span>
+        </button>
       </div>
       <div style="position:relative;height:260px;flex:1"><canvas id="chartTrend"></canvas></div>
     </div>
@@ -934,11 +939,20 @@ function repList(){ return reps.has('Todos') ? ['Lizete','Emilia','Danielle','Ri
 // Backward compat
 let rep = 'Todos';
 let cTrend=null, cTrendVol=null, cRing=null, cDonutKPI=null, cVarejoCresc=null, cMedicoEvo=null, cSkuEvo=null, cRitmoMTD=null;
-let histTab = 'receita'; // 'receita' | 'volume' | 'comparativo'
+let histTab = 'receita'; // 'receita' | 'volume'
+let histCompare = false; // overlay com período anterior + YoY
 function setHistTab(name){
   if(histTab === name) return;
   histTab = name;
-  document.querySelectorAll('.ht-btn').forEach(b => b.classList.toggle('on', b.dataset.ht === name));
+  document.querySelectorAll('[data-ht]').forEach(b => b.classList.toggle('on', b.dataset.ht === name));
+  try { renderTrend(); } catch(e){ console.error(e); }
+}
+function toggleHistCompare(){
+  histCompare = !histCompare;
+  const dot = document.getElementById('ht-cmp-dot');
+  const btn = document.getElementById('ht-cmp');
+  if(dot) dot.style.background = histCompare ? 'var(--green)' : 'var(--muted)';
+  if(btn) btn.style.background = histCompare ? 'var(--bg3)' : 'var(--bg)';
   try { renderTrend(); } catch(e){ console.error(e); }
 }
 
@@ -2436,14 +2450,12 @@ function renderTrend(){
   const yoyV = totalYoyV  > 0 ? ((totalCurV-totalYoyV )/totalYoyV*100)  : null;
   const fmtP = p => p === null ? '<span style="color:var(--muted)">N/D</span>' : `<span style="color:${p>=0?'var(--green)':'var(--red)'};font-weight:600">${p>=0?'+':''}${p.toFixed(1)}%</span>`;
 
-  // Subtítulo dinâmico baseado na tab
+  // Subtítulo dinâmico baseado na tab + overlay
   let hintInner;
   if(histTab === 'receita'){
     hintInner = `${hintBase} · ${R(totalCur)} · MoM ${fmtP(momR)} · YoY ${fmtP(yoyR)}`;
-  } else if(histTab === 'volume'){
-    hintInner = `${hintBase} · ${fmtUn(totalCurV)} · MoM ${fmtP(momV)} · YoY ${fmtP(yoyV)}`;
   } else {
-    hintInner = `${hintBase} · Atual ${R(totalCur)} · Anterior ${R(totalPrev)} · YoY ${R(totalYoy)}`;
+    hintInner = `${hintBase} · ${fmtUn(totalCurV)} · MoM ${fmtP(momV)} · YoY ${fmtP(yoyV)}`;
   }
   document.getElementById('trend-hint').innerHTML = hintInner;
 
@@ -2457,24 +2469,29 @@ function renderTrend(){
   if(histTab === 'receita'){
     xStacked = yStacked = true;
     datasets = [
-      {label:'DTC',    data:dtcArr, backgroundColor:'#f5c97acc', stack:'rev', borderRadius:3, borderSkipped:false},
-      {label:'B2B',    data:b2bArr, backgroundColor:'#7efbb3cc', stack:'rev', borderRadius:3, borderSkipped:false},
-      {label:'Varejo', data:varArr, backgroundColor:'#c4a8f5cc', stack:'rev', borderRadius:3, borderSkipped:false},
+      {label:'DTC',    data:dtcArr, backgroundColor:'#f5c97acc', stack:'rev', borderRadius:3, borderSkipped:false, order:5},
+      {label:'B2B',    data:b2bArr, backgroundColor:'#7efbb3cc', stack:'rev', borderRadius:3, borderSkipped:false, order:5},
+      {label:'Varejo', data:varArr, backgroundColor:'#c4a8f5cc', stack:'rev', borderRadius:3, borderSkipped:false, order:5},
     ];
-  } else if(histTab === 'volume'){
+    if(histCompare){
+      datasets.push(
+        {type:'line', label:'Período anterior', data:prevRecArr, borderColor:'#9aa39c', borderWidth:1.6, tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:1},
+        {type:'line', label:'Ano anterior',     data:yoyRecArr,  borderColor:'#7ab8f5', borderWidth:1.6, borderDash:[6,3], tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:1}
+      );
+    }
+  } else { // volume
     chartType = 'line';
     datasets = [
-      {label:'Volume', data:volArr, borderColor:'#7efbb3', backgroundColor:'rgba(126,251,179,0.18)', borderWidth:2.5, tension:0.3, pointRadius:0, pointHoverRadius:4, fill:true},
+      {label:'Volume atual', data:volArr, borderColor:'#7efbb3', backgroundColor:'rgba(126,251,179,0.18)', borderWidth:2.5, tension:0.3, pointRadius:0, pointHoverRadius:4, fill:true, order:1},
     ];
+    if(histCompare){
+      datasets.push(
+        {label:'Período anterior', data:prevVolArr, borderColor:'#9aa39c', borderWidth:1.6, tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:2},
+        {label:'Ano anterior',     data:yoyVolArr,  borderColor:'#7ab8f5', borderWidth:1.6, borderDash:[6,3], tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:2}
+      );
+    }
     yTickCb = v => v>=1000 ? (v/1000).toFixed(1)+'k un' : v.toFixed(0)+' un';
     tooltipCb = ctx => ' '+ctx.dataset.label+': '+fmtUn(ctx.parsed.y||0);
-  } else { // comparativo (receita total)
-    chartType = 'line';
-    datasets = [
-      {label:'Atual',            data:totalCurArr, borderColor:'#7efbb3', backgroundColor:'rgba(126,251,179,0.12)', borderWidth:2.6, tension:0.3, pointRadius:0, pointHoverRadius:4, fill:true,  order:1},
-      {label:'Período anterior', data:prevRecArr,  borderColor:'#9aa39c', borderWidth:1.6, tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:2},
-      {label:'Ano anterior',     data:yoyRecArr,   borderColor:'#7ab8f5', borderWidth:1.6, borderDash:[6,3], tension:0.3, pointRadius:0, pointHoverRadius:3, fill:false, order:2},
-    ];
   }
 
   if(cTrend) cTrend.destroy();
@@ -2485,7 +2502,7 @@ function renderTrend(){
       interaction:{mode:'index', intersect:false},
       layout:{padding:{top:6, right:6, bottom:0, left:0}},
       plugins:{
-        legend:{display: histTab !== 'volume', position:'bottom', align:'center',
+        legend:{display: histTab !== 'volume' || histCompare, position:'bottom', align:'center',
           labels:{color:'#9aa39c', font:{size:9}, boxWidth:10, boxHeight:3, padding:8, usePointStyle:false}},
         tooltip:{backgroundColor:'#111312', borderColor:'#ffffff11', borderWidth:1, padding:8,
           titleFont:{size:10}, bodyFont:{size:10}, callbacks:{label: tooltipCb}}

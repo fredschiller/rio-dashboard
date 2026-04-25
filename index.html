@@ -2412,17 +2412,26 @@ function renderMedicos(){
     document.getElementById('tbl-med').innerHTML='<tr><td colspan="5" style="padding:12px 0;color:var(--muted);font-size:10px;text-align:center">Nenhum médico neste período.</td></tr>';
     return;
   }
-  const mx=accs[0]?.receita||1;
+  const _vol = isVol();
+  // Quando em modo Unidades, ordena pela coluna de volume e mostra a barra/total proporcional ao volume
+  if(_vol){
+    accs = [...accs].sort((a,b) => (b.volume||0) - (a.volume||0));
+  }
+  const mxR = accs[0]?.receita || 1;
+  const mxV = Math.max(...accs.map(a => a.volume||0)) || 1;
   document.getElementById('tbl-med').innerHTML=accs.slice(0,10).map(r=>{
-    const pct=(r.receita/mx*100).toFixed(0),col=RC[r.representante]||'#888',pc=PI[r.representante]||'pL';
+    const baseVal = _vol ? (r.volume||0) : (r.receita||0);
+    const baseMx  = _vol ? mxV : mxR;
+    const pct=(baseVal/baseMx*100).toFixed(0),col=RC[r.representante]||'#888',pc=PI[r.representante]||'pL';
     const pVal=getPeriodVal(r);
     const vVal=getVolVal(r);
+    const totalCell = _vol ? `${r.volume||0} un` : R(r.receita);
     return`<tr data-modal="${esc(r.medico)}">
       <td><div style="font-weight:500">${esc(r.medico)}</div><div class="bw"><div class="bt"><div class="bf" style="width:${pct}%;background:${col}"></div></div></div></td>
       <td class="d"><span class="pill ${pc}">${r.representante}</span></td>
       <td class="r" style="color:var(--muted)">${vVal||'—'}</td>
       <td class="r">${pVal>0?R(pVal):'<span style="color:var(--dim)">—</span>'}</td>
-      <td class="r">${R(r.receita)}</td>
+      <td class="r">${totalCell}</td>
     </tr>`;
   }).join('');
 }
@@ -2534,24 +2543,31 @@ function renderSKUs(){
   const prevAgg={};
   prevFiltered.forEach(d=>{const name=unifySku(d.sku);if(!prevAgg[name])prevAgg[name]={receita:0,volume:0};prevAgg[name].receita+=d.receita;prevAgg[name].volume+=(d.volume||0);});
 
-  const top=Object.values(skuAgg).sort((a,b)=>b.receita-a.receita).slice(0,12);
+  const _vol = isVol();
+  const sortKey = _vol ? 'volume' : 'receita';
+  const top=Object.values(skuAgg).sort((a,b)=>(b[sortKey]||0)-(a[sortKey]||0)).slice(0,12);
   if(!top.length){
     document.getElementById('geral-sku-list').innerHTML='<tr><td colspan="5" style="padding:8px 0;color:var(--muted);font-size:10px;text-align:center">Sem dados de SKU.</td></tr>';
     _skuData.geral=[];return;
   }
   _skuData.geral=top.map(r=>({sku:r.sku,volume:r.volume||0,receita:r.receita||0}));
-  _skuSort.geral={col:'receita',asc:false};
-  const mx=top[0]?.receita||1;
+  _skuSort.geral={col:sortKey,asc:false};
+  const mx=top[0]?.[sortKey]||1;
   document.getElementById('geral-sku-list').innerHTML=top.map(r=>{
-    const pct=(r.receita/mx*100).toFixed(0);
+    const baseVal = _vol ? (r.volume||0) : (r.receita||0);
+    const pct=(baseVal/mx*100).toFixed(0);
     const prev=prevAgg[r.sku];
-    const prevR=prev?prev.receita:0;
-    const varPct=prevR>0?((r.receita-prevR)/prevR*100):null;
+    const prevVal = _vol ? (prev?prev.volume:0) : (prev?prev.receita:0);
+    const curVal  = _vol ? (r.volume||0) : (r.receita||0);
+    const varPct = prevVal>0 ? ((curVal-prevVal)/prevVal*100) : null;
     const varHtml=varPct!==null?`<span style="color:${varPct>=0?'var(--green)':'var(--red)'};font-size:10px;font-weight:600">${varPct>=0?'+':''}${varPct.toFixed(0)}%</span>`:'<span style="color:var(--dim);font-size:9px">—</span>';
-    return`<tr><td><div style="font-weight:500">${esc(r.sku)}</div><div class="bw"><div class="bt"><div class="bf" style="width:${pct}%;background:var(--gold)"></div></div></div></td><td class="r" style="color:var(--muted)">${r.volume||'—'}</td><td class="r">${R(r.receita)}</td><td class="r" style="color:var(--muted);font-size:10px">${prevR>0?R(prevR):'—'}</td><td class="r">${varHtml}</td></tr>`;
+    const prevTxt = prevVal>0 ? (_vol ? prevVal+' un' : R(prevVal)) : '—';
+    const recCell = _vol ? (r.volume||0) + ' un' : R(r.receita);
+    const volCell = _vol ? R(r.receita) : (r.volume||'—');
+    return`<tr><td><div style="font-weight:500">${esc(r.sku)}</div><div class="bw"><div class="bt"><div class="bf" style="width:${pct}%;background:var(--gold)"></div></div></div></td><td class="r" style="color:var(--muted)">${volCell}</td><td class="r">${recCell}</td><td class="r" style="color:var(--muted);font-size:10px">${prevTxt}</td><td class="r">${varHtml}</td></tr>`;
   }).join('');
-  const thV=document.getElementById('geral-th-vol');if(thV)thV.textContent='Vol.';
-  const thR=document.getElementById('geral-th-rec');if(thR)thR.textContent='Receita \u25BC';
+  const thV=document.getElementById('geral-th-vol');if(thV)thV.textContent = _vol ? 'Receita' : 'Vol.';
+  const thR=document.getElementById('geral-th-rec');if(thR)thR.textContent = (_vol ? 'Unidades' : 'Receita') + ' \u25BC';
 }
 
 // ── SKU EVOLUTION (global panel) ─────────────────────────────────────────────
@@ -3379,7 +3395,14 @@ function renderMedicosKPIs(){
 
   const el=document.getElementById('medicos-kpis');
   if(!el)return;
-  el.innerHTML=kc(R(curRec),'Receita B2B',momRec,'var(--green)')+kc(curMedicos.size,'M\u00e9dicos ativos',momMed,'var(--blue)')+kc(curPres,'Prescri\u00e7\u00f5es',momPres,'var(--gold)')+kc(R(ticketCur),'Ticket m\u00e9dio/presc.',momTk,'var(--violet)')+kc(topMedName.length>18?topMedName.slice(0,16)+'\u2026':topMedName,'Top m\u00e9dico',null,'var(--green)')+kc(inat,'Alertas inatividade',null,'var(--red)');
+  // ── Toggle R$/Un ──
+  const _vol = isVol();
+  const valFmt = _vol ? (curPres.toLocaleString('pt-BR') + ' un') : R(curRec);
+  const valLbl = _vol ? 'Unidades B2B' : 'Receita B2B';
+  const valMom = _vol ? momPres : momRec;
+  const tktFmt = _vol ? ((curMedicos.size > 0 ? (curPres / curMedicos.size).toFixed(1) : '0') + ' un/méd') : R(ticketCur);
+  const tktLbl = _vol ? 'Un/médico' : 'Ticket médio/presc.';
+  el.innerHTML=kc(valFmt,valLbl,valMom,'var(--green)')+kc(curMedicos.size,'Médicos ativos',momMed,'var(--blue)')+kc(curPres,'Prescrições',momPres,'var(--gold)')+kc(tktFmt,tktLbl,_vol?null:momTk,'var(--violet)')+kc(topMedName.length>18?topMedName.slice(0,16)+'\u2026':topMedName,'Top médico',null,'var(--green)')+kc(inat,'Alertas inatividade',null,'var(--red)');
 }
 
 function sortRankMedico(col){
@@ -3671,11 +3694,31 @@ function renderVarejoKPIs(){
 
   const storeLbl = storeFilter ? ' · '+(storeFilter.length>16?storeFilter.slice(0,16)+'…':storeFilter) : '';
 
+  // ── Toggle R$/Un nos KPIs ──
+  const _vol = isVol();
+  const valPrincipal = _vol ? volume : receita;
+  const momPrincipal = _vol ? momVol : momRec;
+  const valLbl = _vol ? 'Unidades' : 'Receita';
+  const valFmt = _vol ? (volume.toLocaleString('pt-BR') + ' un') : R(receita);
+  const tktVal = _vol ? (vendasCount > 0 ? volume / vendasCount : 0) : ticketMedio;
+  const tktFmt = _vol ? (tktVal.toFixed(2) + ' un') : R2(ticketMedio);
+  const tktLbl = _vol ? 'Un/Pedido' : 'Ticket médio';
+  const topSkuVal = _vol ? (skuAgg[topSKU.sku]?.volume || 0) : topSKU.receita;
+  const topSkuFmt = _vol ? (topSkuVal + ' un') : R(topSKU.receita);
+  const topLojaFmt = _vol ? '' : R(topLoja.receita);
+
+  // Para volume, recalcula topSKU e topLoja por volume
+  let topSkuFinal = topSKU, topLojaFinal = topLoja;
+  if(_vol){
+    const skuV = Object.entries(skuAgg).sort((a,b) => (b[1].volume||0) - (a[1].volume||0));
+    if(skuV.length) topSkuFinal = {sku: skuV[0][0], receita: skuV[0][1].volume};
+  }
+
   document.getElementById('varejo-kpis').innerHTML=`
     <div class="kpi">
-      <div class="kpi-lbl">Receita <span class="bdg neu">Varejo</span></div>
-      <div class="kpi-val">${R(receita)}</div>
-      <div class="kpi-sub">${periodLabel}${storeLbl}${repLbl} ${momRec==='novo'?'<span class="bdg up">novo</span>':momRec!==null?bdg(parseFloat(momRec)):''}</div>
+      <div class="kpi-lbl">${valLbl} <span class="bdg neu">Varejo</span></div>
+      <div class="kpi-val">${valFmt}</div>
+      <div class="kpi-sub">${periodLabel}${storeLbl}${repLbl} ${momPrincipal==='novo'?'<span class="bdg up">novo</span>':momPrincipal!==null?bdg(parseFloat(momPrincipal)):''}</div>
       <div class="kpi-bar2" style="width:100%;background:var(--violet)"></div>
     </div>
     <div class="kpi">
@@ -3691,21 +3734,21 @@ function renderVarejoKPIs(){
       <div class="kpi-bar2" style="width:75%;background:var(--violet)"></div>
     </div>
     <div class="kpi">
-      <div class="kpi-lbl">Ticket médio</div>
-      <div class="kpi-val">${R2(ticketMedio)}</div>
-      <div class="kpi-sub">${periodLabel}${storeLbl}${repLbl} ${momTicket!==null?bdg(parseFloat(momTicket)):''}</div>
+      <div class="kpi-lbl">${tktLbl}</div>
+      <div class="kpi-val">${tktFmt}</div>
+      <div class="kpi-sub">${periodLabel}${storeLbl}${repLbl} ${(_vol||momTicket===null)?'':bdg(parseFloat(momTicket))}</div>
       <div class="kpi-bar2" style="width:60%;background:var(--green)"></div>
     </div>
     <div class="kpi">
       <div class="kpi-lbl">Top SKU${period!=='total'?' ('+periodLabel+')':''}</div>
-      <div class="kpi-val" style="font-size:11px">${topSKU.sku.length>28?topSKU.sku.slice(0,28)+'…':topSKU.sku}</div>
-      <div class="kpi-sub">${R(topSKU.receita)}${storeLbl}${repLbl}</div>
+      <div class="kpi-val" style="font-size:11px">${topSkuFinal.sku.length>28?topSkuFinal.sku.slice(0,28)+'…':topSkuFinal.sku}</div>
+      <div class="kpi-sub">${_vol ? (topSkuFinal.receita + ' un') : R(topSkuFinal.receita)}${storeLbl}${repLbl}</div>
       <div class="kpi-bar2" style="width:70%;background:var(--gold)"></div>
     </div>
     <div class="kpi">
       <div class="kpi-lbl">Top loja${period!=='total'?' ('+periodLabel+')':''}</div>
       <div class="kpi-val" style="font-size:13px">${topLoja.loja.length>18?topLoja.loja.slice(0,18)+'…':topLoja.loja}</div>
-      <div class="kpi-sub">${R(topLoja.receita)}</div>
+      <div class="kpi-sub">${_vol ? '—' : R(topLoja.receita)}</div>
       <div class="kpi-bar2" style="width:80%;background:var(--blue)"></div>
     </div>`;
 }
@@ -5000,12 +5043,21 @@ function renderB2BCS(){
   const pctS=mixTot>0?(sRec/mixTot*100).toFixed(1):'0.0';
 
   // ── Render HTML ──────────────────────────────────────────────────────────
+  // ── Toggle R$/Un ──
+  const _vol = isVol();
+  const valFmt = _vol ? (kpiProdutos.toLocaleString('pt-BR') + ' un') : R(kpiReceita);
+  const valLbl = _vol ? 'Unidades' : recLbl;
+  const valMom = _vol ? momProdutos : momPct;
+  const tktVal = _vol ? (kpiVendas > 0 ? kpiProdutos / kpiVendas : 0) : kpiTicket;
+  const tktFmt = _vol ? (tktVal.toFixed(2) + ' un') : R2(kpiTicket);
+  const tktLbl = _vol ? 'Un/Pedido' : 'Ticket médio';
+  // Para Concierge/Site: temos receita sempre. Volume vai zerado quando _vol — vou manter receita pra esses 2 mesmo no toggle (são share por canal)
   document.getElementById('b2bcs-container').innerHTML=`
     <div class="kpi-row kpi-6">
       <div class="kpi">
-        <div class="kpi-lbl">${recLbl} <span class="bdg neu">C+S</span></div>
-        <div class="kpi-val">${R(kpiReceita)}</div>
-        <div class="kpi-sub">${kpiLabel}${repLbl} ${momPct!==null?bdg(parseFloat(momPct)):''}</div>
+        <div class="kpi-lbl">${valLbl} <span class="bdg neu">C+S</span></div>
+        <div class="kpi-val">${valFmt}</div>
+        <div class="kpi-sub">${kpiLabel}${repLbl} ${valMom!==null?bdg(parseFloat(valMom)):''}</div>
         <div class="kpi-bar2" style="width:100%;background:var(--text)"></div>
       </div>
       <div class="kpi">
@@ -5021,9 +5073,9 @@ function renderB2BCS(){
         <div class="kpi-bar2" style="width:60%;background:var(--violet)"></div>
       </div>
       <div class="kpi">
-        <div class="kpi-lbl">Ticket médio</div>
-        <div class="kpi-val">${R2(kpiTicket)}</div>
-        <div class="kpi-sub">${kpiLabel}${repLbl} ${momTicket!==null?bdg(parseFloat(momTicket)):''}</div>
+        <div class="kpi-lbl">${tktLbl}</div>
+        <div class="kpi-val">${tktFmt}</div>
+        <div class="kpi-sub">${kpiLabel}${repLbl} ${(_vol||momTicket===null)?'':bdg(parseFloat(momTicket))}</div>
         <div class="kpi-bar2" style="width:60%;background:var(--violet)"></div>
       </div>
       <div class="kpi">
@@ -5738,12 +5790,16 @@ function renderB2BTotal(){
   // ══════════════════════════════════════════════════════════════════════════
   // RENDER HTML
   // ══════════════════════════════════════════════════════════════════════════
+  // ── Toggle R$/Un ──
+  const _vol = isVol();
+  const valFmt = _vol ? (produtosBT.toLocaleString('pt-BR') + ' un') : R(grandTotal);
+  const valLbl = _vol ? 'Unidades B2B Total' : 'Receita B2B Total';
   document.getElementById('b2btotal-container').innerHTML=`
     <div class="kpi-row kpi-6">
       <div class="kpi">
-        <div class="kpi-lbl">Receita B2B Total</div>
-        <div class="kpi-val">${R(grandTotal)}</div>
-        <div class="kpi-sub">${kpiLabel}${repLbl} ${momGrand!==null?bdg(parseFloat(momGrand)):''}</div>
+        <div class="kpi-lbl">${valLbl}</div>
+        <div class="kpi-val">${valFmt}</div>
+        <div class="kpi-sub">${kpiLabel}${repLbl} ${(_vol||momGrand===null)?'':bdg(parseFloat(momGrand))}</div>
         <div class="kpi-bar2" style="width:100%;background:var(--text)"></div>
       </div>
       <div class="kpi">
@@ -6214,13 +6270,29 @@ function renderConcierge(){
 
   // ── Render HTML ──────────────────────────────────────────────────────────
   const geralConvLbl = kpiConvIsGlobal ? 'Contribuição' : 'Conversão';
+  // ── Toggle R$/Un ──
+  const _vol = isVol();
+  // Geral
+  const g_valFmt = _vol ? (geralProdutos.toLocaleString('pt-BR') + ' un') : R(geralRec);
+  const g_valLbl = _vol ? 'Unidades' : 'Receita';
+  const g_mom    = _vol ? geralMomProd : geralMomRec;
+  const g_tktVal = _vol ? (geralVendas > 0 ? geralProdutos / geralVendas : 0) : geralTicket;
+  const g_tktFmt = _vol ? (g_tktVal.toFixed(2) + ' un') : R2(geralTicket);
+  const g_tktLbl = _vol ? 'Un/Pedido' : 'Ticket médio';
+  // Dermato
+  const d_valFmt = _vol ? (kpiProdutos.toLocaleString('pt-BR') + ' un') : R(kpiReceita);
+  const d_valLbl = _vol ? 'Unidades' : 'Receita';
+  const d_mom    = _vol ? momProdutos : momPct;
+  const d_tktVal = _vol ? (kpiVendas > 0 ? kpiProdutos / kpiVendas : 0) : kpiTicket;
+  const d_tktFmt = _vol ? (d_tktVal.toFixed(2) + ' un') : R2(kpiTicket);
+  const d_tktLbl = _vol ? 'Un/Pedido' : 'Ticket médio';
   document.getElementById('conc-container').innerHTML = `
     <div style="font-size:9px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Concierge Geral — todas as vendas concierge</div>
     <div class="kpi-row kpi-5">
       <div class="kpi">
-        <div class="kpi-lbl">Receita <span class="bdg neu">Geral</span></div>
-        <div class="kpi-val">${R(geralRec)}</div>
-        <div class="kpi-sub">${kpiLabel}${repLbl} ${geralMomRec!==null?bdg(parseFloat(geralMomRec)):''}</div>
+        <div class="kpi-lbl">${g_valLbl} <span class="bdg neu">Geral</span></div>
+        <div class="kpi-val">${g_valFmt}</div>
+        <div class="kpi-sub">${kpiLabel}${repLbl} ${g_mom!==null?bdg(parseFloat(g_mom)):''}</div>
         <div class="kpi-bar2" style="width:100%;background:var(--text)"></div>
       </div>
       <div class="kpi">
@@ -6236,9 +6308,9 @@ function renderConcierge(){
         <div class="kpi-bar2" style="width:60%;background:var(--gold)"></div>
       </div>
       <div class="kpi">
-        <div class="kpi-lbl">Ticket médio</div>
-        <div class="kpi-val">${R2(geralTicket)}</div>
-        <div class="kpi-sub">${kpiLabel}${repLbl} ${geralMomTicket!==null?bdg(parseFloat(geralMomTicket)):''}</div>
+        <div class="kpi-lbl">${g_tktLbl}</div>
+        <div class="kpi-val">${g_tktFmt}</div>
+        <div class="kpi-sub">${kpiLabel}${repLbl} ${(_vol||geralMomTicket===null)?'':bdg(parseFloat(geralMomTicket))}</div>
         <div class="kpi-bar2" style="width:60%;background:var(--violet)"></div>
       </div>
       <div class="kpi">
@@ -6251,9 +6323,9 @@ function renderConcierge(){
     <div style="font-size:9px;color:var(--muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:1px">Concierge Dermato — vendas com cupom de médico(a)</div>
     <div class="kpi-row kpi-5">
       <div class="kpi">
-        <div class="kpi-lbl">Receita <span class="bdg pos">Dermato</span></div>
-        <div class="kpi-val">${R(kpiReceita)}</div>
-        <div class="kpi-sub">${kpiLabel}${repLbl} ${momPct!==null?bdg(parseFloat(momPct)):''}</div>
+        <div class="kpi-lbl">${d_valLbl} <span class="bdg pos">Dermato</span></div>
+        <div class="kpi-val">${d_valFmt}</div>
+        <div class="kpi-sub">${kpiLabel}${repLbl} ${d_mom!==null?bdg(parseFloat(d_mom)):''}</div>
         <div class="kpi-bar2" style="width:100%;background:var(--green)"></div>
       </div>
       <div class="kpi">
@@ -6269,9 +6341,9 @@ function renderConcierge(){
         <div class="kpi-bar2" style="width:60%;background:var(--green)"></div>
       </div>
       <div class="kpi">
-        <div class="kpi-lbl">Ticket médio</div>
-        <div class="kpi-val">${R2(kpiTicket)}</div>
-        <div class="kpi-sub">${kpiLabel}${repLbl} ${momTicket!==null?bdg(parseFloat(momTicket)):''}</div>
+        <div class="kpi-lbl">${d_tktLbl}</div>
+        <div class="kpi-val">${d_tktFmt}</div>
+        <div class="kpi-sub">${kpiLabel}${repLbl} ${(_vol||momTicket===null)?'':bdg(parseFloat(momTicket))}</div>
         <div class="kpi-bar2" style="width:60%;background:var(--green)"></div>
       </div>
       <div class="kpi">

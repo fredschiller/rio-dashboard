@@ -559,6 +559,11 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 
   <!-- ═══ SUB-ABA COMERCIAL ═══ -->
   <div id="vsub-comercial">
+  <!-- ⚡ Ritmo da semana (Varejo usa semana vs semana pelo lag dos dados) -->
+  <div class="panel" style="margin-bottom:10px">
+    <div class="ph"><div class="pt">⚡ Ritmo da semana</div><div class="pn" id="ritmo-data-varejo">—</div></div>
+    <div id="ritmo-cards-varejo" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+  </div>
   <!-- Histórico de Vendas -->
   <div class="panel" style="display:flex;flex-direction:column">
     <div class="ph">
@@ -725,6 +730,12 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 
   <!-- ══ ABA MÉDICOS ═══════════════════════════════════════════════════════ -->
   <div id="section-medicos" style="display:none">
+
+    <!-- ⚡ Ritmo do dia -->
+    <div class="panel" style="margin-bottom:10px">
+      <div class="ph"><div class="pt">⚡ Ritmo do dia</div><div class="pn" id="ritmo-data-medicos">—</div></div>
+      <div id="ritmo-cards-medicos" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
 
     <!-- KPI cards médicos -->
     <div class="kpi-row kpi-6" id="medicos-kpis"></div>
@@ -2061,44 +2072,62 @@ function renderInsights(){
 
 // ── KPI CARDS (rep+period combined) ──────────────────────────────────────────
 // ⚡ Ritmo do mês — Hoje vs Ontem + MTD vs mês anterior (acumulado)
-function renderRitmo(){
+function renderRitmo(scope = 'geral', mode = 'day'){
   if(!D || !D.daily || !D.daily.rows) return;
-  const row = document.getElementById('ritmo-row'); if(!row) return;
+  const sx = scope === 'geral' ? '' : `-${scope}`;
+  const cardsEl = document.getElementById(`ritmo-cards${sx}`);
+  if(!cardsEl) return;
 
-  // Filtra rows por rep (respeita seleção)
-  const repAll = repIsAll();
-  const rows = D.daily.rows.filter(r => repAll || repMatch(r.rep));
+  const sourceRows = _dailyWithVarejoMonthly(scope);
+  let rows = _scopeFilter(sourceRows, scope);
+  rows = rows.filter(r => repIsAll() || repMatch(r.rep));
   if(rows.length === 0){
-    document.getElementById('ritmo-cards').innerHTML = '<div style="grid-column:span 3;color:var(--muted);font-size:11px;padding:14px;text-align:center">Sem dados para este filtro.</div>';
-    if(cRitmoMTD){ cRitmoMTD.destroy(); cRitmoMTD = null; }
+    cardsEl.innerHTML = '<div style="grid-column:span 3;color:var(--muted);font-size:11px;padding:14px;text-align:center">Sem dados para este filtro.</div>';
+    if(scope === 'geral' && cRitmoMTD){ cRitmoMTD.destroy(); cRitmoMTD = null; }
     return;
   }
 
-  // Última data com dados = "hoje" do dataset
-  const hojeStr = rows.reduce((m, r) => r.data > m ? r.data : m, rows[0].data);
-  // Penúltima data com dados = "ontem"
-  const datasUnicas = [...new Set(rows.map(r => r.data))].sort();
-  const idxHoje = datasUnicas.indexOf(hojeStr);
-  const ontemStr = idxHoje > 0 ? datasUnicas[idxHoje - 1] : null;
-
+  const fmtData = s => { const [y,m,d] = s.split('-'); return `${d}/${m}`; };
   const valKey = isVol() ? 'volume' : 'receita';
-  const aggDay = d => {
-    const rs = rows.filter(r => r.data === d);
-    return {
-      val: rs.reduce((s,r)=>s+(r[valKey]||0),0),
-      pedidos: rs.reduce((s,r)=>s+(r.pedidos||0),0)
-    };
-  };
-  const hoje = aggDay(hojeStr);
-  const ontem = ontemStr ? aggDay(ontemStr) : { val: 0, pedidos: 0 };
-  const deltaR = hoje.val - ontem.val;
-  const deltaPct = ontem.val > 0 ? (deltaR / ontem.val) * 100 : null;
+
+  let curLbl, prevLbl, curRows, prevRows, dataLblTxt, hojeStr;
+  if(mode === 'week'){
+    const datasUnicas = [...new Set(rows.map(r => r.data))].sort();
+    const lastDate = datasUnicas[datasUnicas.length - 1];
+    const lastWeek = dayToWeek(lastDate);
+    const prevDateD = new Date(lastDate); prevDateD.setDate(prevDateD.getDate() - 7);
+    const prevWeek = dayToWeek(prevDateD.toISOString().slice(0,10));
+    curRows  = rows.filter(r => dayToWeek(r.data) === lastWeek);
+    prevRows = rows.filter(r => dayToWeek(r.data) === prevWeek);
+    curLbl  = `Esta semana (${lastWeek.split('-W')[1]})`;
+    prevLbl = `Sem. ant. (${prevWeek.split('-W')[1]})`;
+    dataLblTxt = `${lastWeek} vs ${prevWeek}`;
+    hojeStr = lastDate;
+  } else {
+    hojeStr = rows.reduce((m, r) => r.data > m ? r.data : m, rows[0].data);
+    const datasUnicas = [...new Set(rows.map(r => r.data))].sort();
+    const idxHoje = datasUnicas.indexOf(hojeStr);
+    const ontemStr = idxHoje > 0 ? datasUnicas[idxHoje - 1] : null;
+    curRows  = rows.filter(r => r.data === hojeStr);
+    prevRows = ontemStr ? rows.filter(r => r.data === ontemStr) : [];
+    curLbl  = `Hoje (${fmtData(hojeStr)})`;
+    prevLbl = ontemStr ? `Ontem (${fmtData(ontemStr)})` : 'Ontem';
+    dataLblTxt = `${fmtData(hojeStr)}${ontemStr ? ' vs ' + fmtData(ontemStr) : ''}`;
+  }
+
+  const aggSet = (rs) => ({
+    val: rs.reduce((s,r) => s + (r[valKey]||0), 0),
+    pedidos: rs.reduce((s,r) => s + (r.pedidos||0), 0),
+  });
+  const cur  = aggSet(curRows);
+  const prev = aggSet(prevRows);
+  const deltaR = cur.val - prev.val;
+  const deltaPct = prev.val > 0 ? (deltaR / prev.val) * 100 : null;
   const arrow = deltaR > 0 ? '↑' : deltaR < 0 ? '↓' : '·';
   const delColor = deltaR > 0 ? 'var(--green)' : deltaR < 0 ? 'var(--red)' : 'var(--muted)';
 
-  const fmtData = s => { const [y,m,d] = s.split('-'); return `${d}/${m}`; };
-  const dataLbl = document.getElementById('ritmo-data');
-  if(dataLbl) dataLbl.textContent = `${fmtData(hojeStr)}${ontemStr ? ' vs ' + fmtData(ontemStr) : ''}`;
+  const dataLblEl = document.getElementById(`ritmo-data${sx}`);
+  if(dataLblEl) dataLblEl.textContent = dataLblTxt;
 
   const card = (lbl, val, sub, color) => `
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
@@ -2107,10 +2136,13 @@ function renderRitmo(){
       <div style="font-size:10px;color:var(--muted);margin-top:3px">${sub}</div>
     </div>`;
 
-  document.getElementById('ritmo-cards').innerHTML =
-    card('Hoje (' + fmtData(hojeStr) + ')', fmtMetric(hoje.val), `${hoje.pedidos} pedido${hoje.pedidos===1?'':'s'}`) +
-    card('Ontem' + (ontemStr ? ' (' + fmtData(ontemStr) + ')' : ''), fmtMetric(ontem.val), `${ontem.pedidos} pedido${ontem.pedidos===1?'':'s'}`) +
+  cardsEl.innerHTML =
+    card(curLbl,  fmtMetric(cur.val),  `${cur.pedidos} pedido${cur.pedidos===1?'':'s'}`) +
+    card(prevLbl, fmtMetric(prev.val), `${prev.pedidos} pedido${prev.pedidos===1?'':'s'}`) +
     card('Variação', (deltaR>=0?'+':'−') + fmtMetric(Math.abs(deltaR)), deltaPct===null ? '—' : `${arrow} ${Math.abs(deltaPct).toFixed(1)}%`, delColor);
+
+  // Gráfico MTD (só Geral)
+  if(scope !== 'geral') return;
 
   // ─── Gráfico MTD vs mês anterior + ano anterior (acumulado) ───────────
   const [yH, mH, dH] = hojeStr.split('-').map(Number);
@@ -3486,6 +3518,7 @@ function renderMedicosTab(){
   renderMedicoEvo();
   renderPesoMedico();
   renderRankMedico();
+  setTimeout(() => { try { renderRitmo('medicos', 'day'); } catch(e){ console.error(e); } }, 30);
 }
 
 // ── Mapa de vendas por estado (tile cartogram) ────────────────────────────────
@@ -4180,6 +4213,7 @@ function renderVarejoDash(){
   renderVarejoLojas();
   renderEstoqueGiro();
   renderInsights();
+  setTimeout(() => { try { renderRitmo('varejo', 'week'); } catch(e){ console.error(e); } }, 30);
 }
 
 function renderVarejoLojas(){
@@ -5507,6 +5541,10 @@ function renderB2BCS(){
   const cs_unPed = (kpiVendas > 0 && kpiProdutos > 0) ? (kpiProdutos/kpiVendas) : 0;
   const cs_tktTxt = R2(kpiTicket) + (cs_unPed > 0 ? ` · ${cs_unPed.toFixed(1)} un/ped` : '');
   document.getElementById('b2bcs-container').innerHTML=`
+    <div class="panel" style="margin-bottom:10px">
+      <div class="ph"><div class="pt">⚡ Ritmo do dia</div><div class="pn" id="ritmo-data-b2bcs">—</div></div>
+      <div id="ritmo-cards-b2bcs" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
     <div class="kpi-row kpi-6">
       <div class="kpi">
         <div class="kpi-lbl">${recLbl} <span class="bdg neu">C+S</span></div>
@@ -5760,6 +5798,7 @@ function renderB2BCS(){
         y:{stacked:true,grid:{color:'#ffffff08'},ticks:{callback:v=>R(v),font:{size:8}}}}}
   });
   renderInsights();
+  setTimeout(() => { try { renderRitmo('b2bcs', 'day'); } catch(e){ console.error(e); } }, 30);
 }
 
 // ── B2B TOTAL — SKU MONTHLY TABLE ─────────────────────────────────────────────
@@ -6205,6 +6244,10 @@ function renderB2BTotal(){
   // ══════════════════════════════════════════════════════════════════════════
   const bt_volStr = produtosBT ? ' · '+fmtUn(produtosBT) : '';
   document.getElementById('b2btotal-container').innerHTML=`
+    <div class="panel" style="margin-bottom:10px">
+      <div class="ph"><div class="pt">⚡ Ritmo do dia</div><div class="pn" id="ritmo-data-b2btotal">—</div></div>
+      <div id="ritmo-cards-b2btotal" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
     <div class="kpi-row kpi-6">
       <div class="kpi">
         <div class="kpi-lbl">Receita B2B Total</div>
@@ -6440,6 +6483,7 @@ function renderB2BTotal(){
   const thVolBT=document.getElementById('b2bt-th-vol');if(thVolBT)thVolBT.textContent='Vol.';
   const thRecBT=document.getElementById('b2bt-th-rec');if(thRecBT)thRecBT.textContent='Receita ▼';
   renderInsights();
+  setTimeout(() => { try { renderRitmo('b2btotal', 'day'); } catch(e){ console.error(e); } }, 30);
 }
 
 // ── CONCIERGE ─────────────────────────────────────────────────────────────────
@@ -6639,6 +6683,10 @@ function renderConcierge(){
   const d_unPed = (kpiVendas > 0 && kpiProdutos > 0) ? (kpiProdutos/kpiVendas) : 0;
   const d_tktTxt = R2(kpiTicket) + (d_unPed > 0 ? ` · ${d_unPed.toFixed(1)} un/ped` : '');
   document.getElementById('conc-container').innerHTML = `
+    <div class="panel" style="margin-bottom:10px">
+      <div class="ph"><div class="pt">⚡ Ritmo do dia</div><div class="pn" id="ritmo-data-concierge">—</div></div>
+      <div id="ritmo-cards-concierge" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+    </div>
     <div style="font-size:9px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Concierge Geral — todas as vendas concierge</div>
     <div class="kpi-row kpi-5">
       <div class="kpi">
@@ -6915,6 +6963,7 @@ function renderConcierge(){
     return `<tr style="cursor:pointer" data-modal="${esc(m.medico)}"><td style="font-weight:500">${esc(m.medico)}</td><td><span style="color:${col};font-size:9px">${m.rep}</span></td><td class="r" style="color:var(--muted)">${m.volume}</td><td class="r">${R(m.receita)}</td></tr>`;
   }).join('');
   renderInsights();
+  setTimeout(() => { try { renderRitmo('concierge', 'day'); } catch(e){ console.error(e); } }, 30);
 }
 
 

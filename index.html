@@ -547,6 +547,11 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 
   <!-- ══ ABA VAREJO ════════════════════════════════════════════════ -->
   <div id="section-varejo" style="display:none">
+  <!-- ⚡ Ritmo da semana (Varejo usa semana vs semana pelo lag dos dados) -->
+  <div class="panel" style="margin-bottom:10px">
+    <div class="ph"><div class="pt">⚡ Ritmo da semana</div><div class="pn" id="ritmo-data-varejo">—</div></div>
+    <div id="ritmo-cards-varejo" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+  </div>
   <!-- KPIs Varejo -->
   <div id="varejo-kpis" class="kpi-row kpi-6"></div>
   <div id="insights-varejo"></div>
@@ -559,11 +564,6 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 
   <!-- ═══ SUB-ABA COMERCIAL ═══ -->
   <div id="vsub-comercial">
-  <!-- ⚡ Ritmo da semana (Varejo usa semana vs semana pelo lag dos dados) -->
-  <div class="panel" style="margin-bottom:10px">
-    <div class="ph"><div class="pt">⚡ Ritmo da semana</div><div class="pn" id="ritmo-data-varejo">—</div></div>
-    <div id="ritmo-cards-varejo" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
-  </div>
   <!-- Histórico de Vendas -->
   <div class="panel" style="display:flex;flex-direction:column">
     <div class="ph">

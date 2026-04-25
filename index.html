@@ -1519,10 +1519,12 @@ function renderMetaHero(){
   const barVolEl  = document.getElementById('meta-thermo-bar-vol');
 
   // Filtro de daily rows pelo escopo (período + aba + reps)
-  const _dRows = (D.daily && D.daily.rows) || [];
+  // Varejo usa _dailyWithVarejoMonthly pra incluir dados sintéticos do mensal canônico.
+  const _dRows = _dailyWithVarejoMonthly(tab);
   function _filterByScope(rows, scope){
     let r = rows;
-    if(scope === 'concierge')      r = r.filter(x => x.is_concierge === 1);
+    // Mesmo critério de _scopeFilter pra consistência (Concierge = Dermato, não Geral)
+    if(scope === 'concierge')      r = r.filter(x => x.canal === 'B2B' && x.sub_canal === 'Concierge');
     else if(scope === 'b2bcs' || scope === 'medicos') r = r.filter(x => x.canal === 'B2B');
     else if(scope === 'b2btotal')  r = r.filter(x => x.canal === 'B2B' || x.canal === 'Varejo');
     else if(scope === 'varejo')    r = r.filter(x => x.canal === 'Varejo');
@@ -2293,7 +2295,9 @@ function renderMixKPI(mix){
 window._histChartRefs = window._histChartRefs || {};
 function _scopeFilter(rows, scope){
   let r = rows;
-  if(scope === 'concierge')      r = r.filter(x => x.is_concierge === 1);
+  // Concierge = sub_canal Concierge dentro de B2B (Dermato).
+  // is_concierge=1 incluiria DTC com cupom de médico, quebrando hierarquia B2B Total ⊇ B2B(C+S) ⊇ Concierge.
+  if(scope === 'concierge')      r = r.filter(x => x.canal === 'B2B' && x.sub_canal === 'Concierge');
   else if(scope === 'b2bcs' || scope === 'medicos') r = r.filter(x => x.canal === 'B2B');
   else if(scope === 'b2btotal')  r = r.filter(x => x.canal === 'B2B' || x.canal === 'Varejo');
   else if(scope === 'varejo')    r = r.filter(x => x.canal === 'Varejo');

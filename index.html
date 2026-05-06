@@ -4946,8 +4946,10 @@ function _compAnualConfig(){
   }
   const yA = yY - 1;
   const pad2 = n => String(n).padStart(2,'0');
+  // YTD inclui o último mês completo (Abr) — junto com Mes Atual (Abr standalone).
+  // São visões complementares: cumulativo + breakdown do mês mais recente.
   const ytdMeses25 = [], ytdMeses26 = [];
-  for(let m = 1; m < mY; m++){
+  for(let m = 1; m <= mY; m++){
     ytdMeses25.push(`${yA}-${pad2(m)}`);
     ytdMeses26.push(`${yY}-${pad2(m)}`);
   }

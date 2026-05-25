@@ -206,8 +206,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 .vcard.cls-critico{border-left-color:#f5877a;}
 .vcard.cls-atencao{border-left-color:#f5c97a;}
 .vcard.cls-oportunidade{border-left-color:#7efbb3;}
-.vcard.cls-novo_lead{border-left-color:#7ab8f5;cursor:default;}
-.vcard.cls-novo_lead:hover{transform:none;}
+.vcard.cls-novo_lead{border-left-color:#7ab8f5;}
 .vc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:4px;}
 .vc-cls{font-size:8px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;}
 .vc-name{font-weight:600;font-size:12px;line-height:1.25;}
@@ -4142,9 +4141,9 @@ function renderVisitar(){
     const pillCls = (typeof PI !== 'undefined' && PI[i.carteira]) || 'pL';
     const fullName = (i.tratamento ? i.tratamento+' ' : '') + i.nome;
     const enderecoP = [i.bairro, i.cidade, i.uf].filter(x=>x).join(' · ');
-    const isClickable = i.kind === 'medico';
-    const cssClasses = `vcard cls-${i.cls}${isClickable ? ' medico-link' : ''}`;
-    const dataAttr   = isClickable ? `data-medico="${esc(i.nome_curto)}"` : '';
+    // Todos clicáveis: médicos abrem perfil rico, leads abrem perfil simplificado
+    const cssClasses = `vcard cls-${i.cls} medico-link`;
+    const dataAttr   = `data-medico="${esc(i.nome_curto)}"`;
     return `<div class="${cssClasses}" ${dataAttr}>
       <div class="vc-head">
         <div class="vc-cls" style="color:${lab.col}">${lab.txt}</div>
@@ -6409,8 +6408,14 @@ function _sortModalProds(col){
 let _medicoChart = null;
 
 function openModal(medicoName){
-  const det = (D.medicos_detail || {})[medicoName];
-  if(!det){ return _openModalLegacy(medicoName); }
+  const md = D.medicos_detail || {};
+  const det = md[medicoName];
+  if(!det || medicoName === '__leads_potenciais'){
+    // Pode ser um lead sem compra (em __leads_potenciais)
+    const lead = (md.__leads_potenciais || []).find(l => l.nome === medicoName);
+    if(lead) return _openLeadModal(lead);
+    return _openModalLegacy(medicoName);
+  }
 
   // Status badge baseado em dias_inativo
   const di = det.dias_inativo;
@@ -6540,6 +6545,62 @@ function openModal(medicoName){
     }, 50);
   }
 
+  document.getElementById('modal').classList.add('open');
+}
+
+// Modal pra leads sem compra (no roster das VMs mas sem histórico de venda ainda)
+function _openLeadModal(lead){
+  const pillCls = (typeof PI !== 'undefined' && PI[lead.carteira]) || 'pL';
+  const fmtData = s => s ? (s.includes('/') ? s : s.split('-').reverse().join('/')) : '—';
+  document.getElementById('modal').querySelector('.mb').classList.add('mb-wide');
+  document.getElementById('m-name').textContent = (lead.tratamento ? lead.tratamento + ' ' : '') + (lead.nome || '');
+  document.getElementById('m-rep').innerHTML = `
+    ${lead.carteira ? `<span class="pill ${pillCls}">${esc(lead.carteira)}</span>` : ''}
+    ${lead.especialidade ? `<span style="color:var(--muted);font-size:10px;margin-left:8px">${esc(lead.especialidade)}</span>` : ''}
+    <span style="margin-left:12px;color:#7ab8f5;font-size:10px;font-weight:600">🆕 LEAD SEM COMPRA</span>
+  `;
+
+  // Contato
+  const contactParts = [];
+  if(lead.email) contactParts.push(`✉ <a href="mailto:${esc(lead.email)}">${esc(lead.email)}</a>`);
+  if(lead.telefone) contactParts.push(`📞 ${esc(lead.telefone)}`);
+  if(lead.instagram){
+    const igHandle = String(lead.instagram).replace(/^https?:\/\/(www\.)?instagram\.com\//,'').replace(/\/$/,'');
+    contactParts.push(`📷 <a href="${esc(lead.instagram)}" target="_blank">@${esc(igHandle)}</a>`);
+  }
+  const enderecoParts = [lead.bairro, lead.cidade, lead.uf].filter(x => x).map(esc).join(' · ');
+  if(enderecoParts) contactParts.push(`📍 ${enderecoParts}`);
+  const contactHtml = contactParts.length ?
+    `<div class="mp-section"><div class="mp-contact">${contactParts.join('')}</div></div>` :
+    `<div class="mp-section"><div class="mp-contact" style="color:var(--muted);font-style:italic">Sem dados de contato no LeadsB2B</div></div>`;
+
+  // Status no roster
+  const statusHtml = (lead.roster_status || lead.roster_classificacao) ? `
+    <div class="mp-section">
+      <div class="mp-section-title">Status no painel da VM</div>
+      <div style="display:flex;gap:14px;font-size:11px;background:rgba(255,255,255,0.02);padding:8px 12px;border-radius:6px">
+        ${lead.roster_status ? `<div><span style="color:var(--muted);font-size:9px;text-transform:uppercase">Status</span><br><b>${esc(lead.roster_status)}</b></div>` : ''}
+        ${lead.roster_classificacao ? `<div><span style="color:var(--muted);font-size:9px;text-transform:uppercase">Classificação</span><br><b>${esc(lead.roster_classificacao)}</b></div>` : ''}
+      </div>
+    </div>` : '';
+
+  // KPIs simples
+  const kpisHtml = `
+    <div class="mp-section">
+      <div class="mp-kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="mp-kpi"><div class="mp-kpi-label">Pedidos</div><div class="mp-kpi-value" style="color:var(--muted)">0</div><div class="mp-kpi-sub">sem compra ainda</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Visitas registradas</div><div class="mp-kpi-value">${lead.n_visitas || 0}</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Última visita</div><div class="mp-kpi-value" style="font-size:13px">${fmtData(lead.ultima_visita)}</div></div>
+      </div>
+    </div>`;
+
+  document.getElementById('m-body').innerHTML = contactHtml + statusHtml + kpisHtml +
+    `<div style="font-size:10px;color:var(--muted);text-align:center;padding:20px;font-style:italic;background:rgba(122,184,245,0.04);border-radius:6px;margin-top:8px">
+       Esse lead ainda não gerou pedido. Quando a 1ª venda entrar, o perfil completo (histórico, top produtos, evolução mensal) será montado automaticamente.
+     </div>
+     <div style="font-size:9px;color:var(--dim);margin-top:8px;text-align:center">Clique fora ou pressione ESC para fechar</div>`;
+
+  if(_medicoChart){ try{ _medicoChart.destroy(); }catch(e){} _medicoChart = null; }
   document.getElementById('modal').classList.add('open');
 }
 
@@ -8968,6 +9029,48 @@ function mobileNav(tab, el){
 
 // ── AUTH: Microsoft Sign-In restricted to @rioskinlab.com ─────────────────────
 const ALLOWED_DOMAIN = 'rioskinlab.com';
+// Visibilidade por carteira: cada visitadora vê apenas sua carteira; Fred = admin.
+const USER_CARTEIRA_MAP = {
+  'frederico@rioskinlab.com': 'Todos',   // admin
+  'lizete@rioskinlab.com':    'Lizete',
+  'danielle@rioskinlab.com':  'Danielle',
+  'emilia@rioskinlab.com':    'Emilia',
+};
+let _userCarteira = 'Todos';
+
+function _applyUserCarteiraLock(user){
+  const email = ((user && user.email) || '').toLowerCase();
+  const carteira = USER_CARTEIRA_MAP[email] || 'Todos';
+  _userCarteira = carteira;
+  if(carteira === 'Todos') return; // admin — sem restrição
+  // Força filtro de rep e esconde os outros botões
+  try {
+    if(typeof reps !== 'undefined'){
+      reps.clear(); reps.add(carteira);
+      if(typeof rep !== 'undefined') rep = carteira;
+    }
+  } catch(e){}
+  // Esconde botões de outros reps; ativa o da carteira do usuário
+  document.querySelectorAll('.fbtn[data-r]').forEach(b => {
+    const r = b.dataset.r;
+    if(r === carteira){
+      b.classList.add('on');
+    } else {
+      b.style.display = 'none';
+    }
+  });
+  // Adiciona indicador visual no header
+  const hdr = document.querySelector('.hdr');
+  if(hdr && !document.getElementById('access-badge')){
+    const badge = document.createElement('div');
+    badge.id = 'access-badge';
+    badge.style.cssText = 'font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border:1px solid var(--border);border-radius:10px;margin-right:8px';
+    badge.innerHTML = `🔒 Acesso restrito · carteira <b style="color:var(--green)">${carteira}</b>`;
+    const userBar = document.getElementById('user-bar');
+    if(userBar) userBar.parentNode.insertBefore(badge, userBar);
+    else hdr.appendChild(badge);
+  }
+}
 
 const AZURE_CLIENT_ID = 'a3b34d73-d68b-4782-b253-f58a7f840472';
 // Tenant-locked: only @rioskinlab.com accounts can login
@@ -9065,6 +9168,8 @@ function showDashboard(user){
     bar.innerHTML = `<div style="width:22px;height:22px;border-radius:50%;background:var(--green);color:var(--bg);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;">${initials}</div><span>${user.name||user.email}</span><button class="logout-btn" onclick="doLogout()">Sair</button>`;
     hdr.appendChild(bar);
   }
+  // Aplica restrição de visibilidade por carteira (não-admin vê só sua)
+  _applyUserCarteiraLock(user);
   loadData();
 }
 

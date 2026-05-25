@@ -175,8 +175,31 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
 .dd{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
 /* MODAL */
 .mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:100;align-items:center;justify-content:center;padding:16px;}
+.medico-link{cursor:pointer;}
+.medico-link:hover{color:var(--green) !important;text-decoration:underline;}
+.mp-section{margin-bottom:14px;}
+.mp-section-title{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;font-weight:600;}
+.mp-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+@media (max-width:640px){.mp-kpi-grid{grid-template-columns:repeat(2,1fr);}}
+.mp-kpi{background:rgba(255,255,255,0.02);border:1px solid var(--bd2);border-radius:6px;padding:8px 10px;}
+.mp-kpi-label{font-size:8px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:3px;}
+.mp-kpi-value{font-family:var(--serif);font-size:16px;font-weight:700;}
+.mp-kpi-sub{font-size:9px;color:var(--muted);margin-top:2px;}
+.mp-contact{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--muted);background:rgba(255,255,255,0.015);padding:8px 12px;border-radius:6px;}
+.mp-contact a{color:var(--blue);text-decoration:none;}
+.mp-contact a:hover{text-decoration:underline;}
+.mp-prods{width:100%;font-size:11px;border-collapse:collapse;}
+.mp-prods th{text-align:left;font-size:9px;color:var(--muted);text-transform:uppercase;padding:4px 6px;border-bottom:1px solid var(--bd2);}
+.mp-prods td{padding:4px 6px;border-bottom:1px solid rgba(255,255,255,0.04);}
+.mp-prods td.r{text-align:right;}
+.mp-visit-item{display:flex;justify-content:space-between;padding:4px 8px;font-size:10px;border-bottom:1px solid rgba(255,255,255,0.03);}
+.mp-visit-item:last-child{border-bottom:none;}
+.mp-tabs{display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px;margin-bottom:10px;width:fit-content;}
+.mp-tab{font-size:10px;padding:5px 12px;border:none;background:transparent;color:var(--muted);cursor:pointer;border-radius:4px;font-weight:500;}
+.mp-tab.active{background:var(--green);color:#0a0b0a;font-weight:700;}
 .mo.open{display:flex;}
 .mb{background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--r);padding:16px;width:100%;max-width:460px;max-height:82vh;overflow-y:auto;}
+.mb.mb-wide{max-width:920px;}
 .mh{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
 .mt2{font-family:var(--serif);font-size:17px;font-weight:700;}
 .mx{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;}
@@ -1227,12 +1250,20 @@ function setVarejoCrescStore(store, el){
 
 // ── EVENT DELEGATION (XSS-safe: no inline onclick with user data) ─────────
 document.addEventListener('click', function(e){
-  // Médico modal — triggered by data-modal attribute
+  // Médico — triggered by data-modal OR .medico-link
+  const link = e.target.closest('.medico-link');
+  if(link && link.dataset.medico){ openModal(link.dataset.medico); return; }
   const modalRow = e.target.closest('[data-modal]');
   if(modalRow){ openModal(modalRow.dataset.modal); return; }
   // Varejo store selection — triggered by data-store attribute
   const storeRow = e.target.closest('[data-store]');
   if(storeRow){ setVarejoCrescStore(storeRow.dataset.store, storeRow); return; }
+});
+// ESC pra fechar modal
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape' && document.getElementById('modal').classList.contains('open')){
+    closeModal();
+  }
 });
 
 // ── LOAD ─────────────────────────────────────────────────────────────────────
@@ -3858,7 +3889,7 @@ function renderPesoMedico(){
     const pct=totalB2B>0?(r.receita/totalB2B*100):0;
     const barW=mxPct>0?(pct/mxPct*100).toFixed(0):0;
     const col=RC[r.rep]||'#888';const pc=PI[r.rep]||'pL';
-    return`<tr><td><div style="font-weight:500;font-size:11px">${esc(r.medico)}</div><div class="bw"><div class="bt" style="height:3px"><div class="bf" style="width:${barW}%;background:${col}"></div></div></div></td><td class="d"><span class="pill ${pc}" style="font-size:8px">${r.rep}</span></td><td class="r" style="font-size:10px">${R(r.receita)}</td><td class="r" style="font-size:11px;font-weight:600;color:var(--green)">${pct.toFixed(1)}%</td></tr>`;
+    return`<tr><td><div class="medico-link" data-medico="${esc(r.medico)}" style="font-weight:500;font-size:11px">${esc(r.medico)}</div><div class="bw"><div class="bt" style="height:3px"><div class="bf" style="width:${barW}%;background:${col}"></div></div></div></td><td class="d"><span class="pill ${pc}" style="font-size:8px">${r.rep}</span></td><td class="r" style="font-size:10px">${R(r.receita)}</td><td class="r" style="font-size:11px;font-weight:600;color:var(--green)">${pct.toFixed(1)}%</td></tr>`;
   }).join('');
 }
 
@@ -4163,7 +4194,7 @@ function renderMapaEstados(){
         <td class="r" style="padding:5px 6px;color:var(--muted)">${s.medicos}</td>
         <td class="r" style="padding:5px 14px 5px 14px">${momCell}</td>
         <td class="r" style="padding:5px 14px 5px 6px">${yoyCell}</td>
-        <td style="padding:5px 6px 5px 18px;font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px" title="${esc(s.top_medico||'')}">${esc(top)}</td>
+        <td style="padding:5px 6px 5px 18px;font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px" title="${esc(s.top_medico||'')}">${s.top_medico ? `<span class="medico-link" data-medico="${esc(s.top_medico)}">${esc(top)}</span>` : esc(top)}</td>
       </tr>`;
     }).join('');
     // Estados que NÃO tiveram venda no período/filtro atual
@@ -6194,36 +6225,173 @@ function _sortModalProds(col){
   else { _modalSort.col=col; _modalSort.asc=false; }
   document.getElementById('m-prods').innerHTML=_modalRenderProds();
 }
+let _medicoChart = null;
+
 function openModal(medicoName){
+  const det = (D.medicos_detail || {})[medicoName];
+  if(!det){ return _openModalLegacy(medicoName); }
+
+  // Status badge baseado em dias_inativo
+  const di = det.dias_inativo;
+  let badge = '— sem dados', badgeCol = 'var(--muted)';
+  if(di !== null && di !== undefined){
+    if(di <= 30){ badge = `🟢 ativo (${di}d)`; badgeCol = 'var(--green)'; }
+    else if(di <= 60){ badge = `🟡 ${di}d sem pedido`; badgeCol = 'var(--gold)'; }
+    else if(di <= 90){ badge = `🟠 ${di}d sem pedido`; badgeCol = '#f5a87a'; }
+    else { badge = `🔴 ${di}d sem pedido`; badgeCol = 'var(--red)'; }
+  }
+  const pillCls = (typeof PI !== 'undefined' && PI[det.carteira]) || 'pL';
+
+  // Header
+  document.getElementById('m-name').textContent = (det.tratamento ? det.tratamento + ' ' : '') + (det.nome_completo || det.nome);
+  document.getElementById('m-rep').innerHTML = `
+    ${det.carteira ? `<span class="pill ${pillCls}">${esc(det.carteira)}</span>` : ''}
+    ${det.especialidade ? `<span style="color:var(--muted);font-size:10px;margin-left:8px">${esc(det.especialidade)}</span>` : ''}
+    ${det.crm ? `<span style="color:var(--muted);font-size:10px;margin-left:8px">CRM ${esc(det.crm)}</span>` : ''}
+    <span style="margin-left:12px;color:${badgeCol};font-size:10px;font-weight:600">${badge}</span>
+  `;
+
+  // Contato
+  const contactParts = [];
+  if(det.email) contactParts.push(`✉ <a href="mailto:${esc(det.email)}">${esc(det.email)}</a>`);
+  if(det.telefone) contactParts.push(`📞 ${esc(det.telefone)}`);
+  if(det.instagram){
+    const igHandle = String(det.instagram).replace(/^https?:\/\/(www\.)?instagram\.com\//,'').replace(/\/$/,'');
+    const segStr = det.instagram_seg ? ` · ${det.instagram_seg.toLocaleString('pt-BR')} seg` : '';
+    contactParts.push(`📷 <a href="${esc(det.instagram)}" target="_blank">@${esc(igHandle)}</a>${segStr}`);
+  }
+  const enderecoParts = [det.bairro, det.cidade, det.uf].filter(x => x).map(esc).join(' · ');
+  if(enderecoParts) contactParts.push(`📍 ${enderecoParts}`);
+  const contactHtml = contactParts.length ?
+    `<div class="mp-section"><div class="mp-contact">${contactParts.join('')}</div></div>` :
+    `<div class="mp-section"><div class="mp-contact" style="color:var(--muted);font-style:italic">Sem dados de contato no LeadsB2B</div></div>`;
+
+  // KPIs (8 cards)
+  const ticketStr = R(det.ticket_medio || 0);
+  const fmtData = s => s ? s.split('-').reverse().join('/') : '—';
+  const freqStr = det.frequencia_media_dias > 0 ? `${det.frequencia_media_dias}d` : '—';
+  const relacionamento = det.meses_relacionamento || 0;
+  const kpisHtml = `
+    <div class="mp-section">
+      <div class="mp-kpi-grid">
+        <div class="mp-kpi"><div class="mp-kpi-label">Receita total</div><div class="mp-kpi-value" style="color:var(--green)">${R(det.receita_total)}</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Volume total</div><div class="mp-kpi-value">${det.volume_total}</div><div class="mp-kpi-sub">${det.n_pedidos} pedidos</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Ticket médio</div><div class="mp-kpi-value">${ticketStr}</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Dias sem pedido</div><div class="mp-kpi-value" style="color:${badgeCol}">${di !== null && di !== undefined ? di+'d' : '—'}</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Frequência média</div><div class="mp-kpi-value">${freqStr}</div><div class="mp-kpi-sub">entre pedidos</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Relacionamento</div><div class="mp-kpi-value">${relacionamento}<span style="font-size:11px;color:var(--muted)"> meses</span></div><div class="mp-kpi-sub">${fmtData(det.primeiro_pedido)} → ${fmtData(det.ultimo_pedido)}</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Concierge</div><div class="mp-kpi-value" style="color:var(--green)">${det.pct_concierge}%</div></div>
+        <div class="mp-kpi"><div class="mp-kpi-label">Site</div><div class="mp-kpi-value" style="color:var(--gold)">${det.pct_site}%</div></div>
+      </div>
+    </div>`;
+
+  // Gráfico evolução mensal
+  const chartHtml = (det.receita_mensal && det.receita_mensal.length > 0) ? `
+    <div class="mp-section">
+      <div class="mp-section-title">Evolução mensal (últimos ${Math.min(det.receita_mensal.length, 18)} meses)</div>
+      <div style="height:160px;background:rgba(255,255,255,0.02);padding:8px;border-radius:6px"><canvas id="m-chart"></canvas></div>
+    </div>` : '';
+
+  // Top produtos
+  const prodsHtml = (det.top_produtos && det.top_produtos.length > 0) ? `
+    <div class="mp-section">
+      <div class="mp-section-title">Top produtos (kits expandidos)</div>
+      <table class="mp-prods">
+        <thead><tr><th>Produto</th><th class="r">Vol</th><th class="r">Receita</th><th class="r">% mix</th></tr></thead>
+        <tbody>
+          ${det.top_produtos.slice(0,10).map(p => `
+            <tr><td>${esc(p.sku)}</td><td class="r">${p.volume}</td><td class="r">${R(p.receita)}</td><td class="r" style="color:var(--green)">${p.pct_mix}%</td></tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  // Visitas timeline
+  const visitsHtml = (det.visitas && det.visitas.length > 0) ? `
+    <div class="mp-section">
+      <div class="mp-section-title">Visitas registradas (${det.n_visitas} total · última: ${fmtData(det.ultima_visita)})</div>
+      <div style="max-height:160px;overflow-y:auto;background:rgba(255,255,255,0.02);border-radius:6px">
+        ${det.visitas.slice().reverse().slice(0,20).map(v => `
+          <div class="mp-visit-item">
+            <span>${esc(v.date||'—')} · ${esc(v.produto || v.code || '')} (${v.qty}×)</span>
+            <span style="color:var(--muted)">${esc(v.rep||'')}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>` : `
+    <div class="mp-section">
+      <div class="mp-section-title">Visitas</div>
+      <div style="font-size:10px;color:var(--muted);font-style:italic;padding:8px">Nenhuma visita registrada nos CSVs das visitadoras</div>
+    </div>`;
+
+  // Compose
+  document.getElementById('modal').querySelector('.mb').classList.add('mb-wide');
+  document.getElementById('m-body').innerHTML = contactHtml + kpisHtml + chartHtml + prodsHtml + visitsHtml +
+    `<div style="font-size:9px;color:var(--dim);margin-top:8px;text-align:center">Clique fora ou pressione ESC para fechar</div>`;
+
+  // Renderiza chart depois do DOM
+  if(_medicoChart){ try{ _medicoChart.destroy(); }catch(e){} _medicoChart = null; }
+  if(det.receita_mensal && det.receita_mensal.length > 0){
+    setTimeout(() => {
+      const cv = document.getElementById('m-chart');
+      if(!cv) return;
+      const rm = det.receita_mensal.slice(-18);
+      _medicoChart = new Chart(cv, {
+        type: 'bar',
+        data: {
+          labels: rm.map(r => r.periodo.slice(2).replace('-','/')),
+          datasets: [{
+            label: 'Receita',
+            data: rm.map(r => r.receita),
+            backgroundColor: '#7efbb3',
+            borderRadius: 3,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: {display:false}, tooltip: { callbacks: { label: c => 'R$ '+c.parsed.y.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}}},
+          scales: {
+            x: { ticks: {color:'#6b756d', font:{size:9}}, grid: {display:false}},
+            y: { ticks: {color:'#6b756d', font:{size:9}, callback: v => 'R$ '+(v>=1000?v/1000+'k':v)}, grid: {color:'rgba(255,255,255,0.04)'}}
+          }
+        }
+      });
+    }, 50);
+  }
+
+  document.getElementById('modal').classList.add('open');
+}
+
+// Fallback pra médicos não encontrados em medicos_detail (ex: dormentes muito antigos)
+function _openModalLegacy(medicoName){
   _modalMedico=medicoName;
   _modalSort={col:'receita',asc:false};
   const accs=D.b2b_accounts||[];
   const acc=accs.find(a=>a.medico===medicoName);
   const prods=(D.products_by_doctor||D.produtos_por_medico||{})[medicoName]||[];
   _modalProds=prods;
-  // Compute totals from medico_monthly (covers all médicos, not just top 20)
   const mm=(D.daily&&D.daily.medico_monthly||[]).filter(m=>m.medico===medicoName);
   const totalRec=mm.reduce((s,m)=>s+(m.receita||0),0);
   const totalVol=mm.reduce((s,m)=>s+(m.volume||0),0);
   const monthsActive=mm.length;
-  const avgRec=monthsActive>0?totalRec/monthsActive:0;
-  const avgVol=monthsActive>0?totalVol/monthsActive:0;
-  // Find rep from medico_monthly if account missing
   const rep=acc?acc.representante:(mm[0]?mm[0].rep:'');
+  document.getElementById('modal').querySelector('.mb').classList.remove('mb-wide');
   document.getElementById('m-name').textContent=medicoName;
-  document.getElementById('m-rep').innerHTML=rep?`<span class="pill ${PI[rep]||'pL'}">${rep}</span>`:'';
+  document.getElementById('m-rep').innerHTML=rep?`<span class="pill ${PI[rep]||'pL'}">${rep}</span> <span style="color:var(--muted);font-size:9px;margin-left:8px">sem perfil completo</span>`:'';
   document.getElementById('m-body').innerHTML=`
     <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap">
       <div><div class="ml">Total acumulado</div><div style="font-family:var(--serif);font-size:20px;font-weight:700">${R(totalRec)}</div></div>
       <div><div class="ml">Volume total</div><div style="font-family:var(--serif);font-size:16px;font-weight:700">${totalVol}</div></div>
-      <div><div class="ml">Receita média/mês</div><div style="font-family:var(--serif);font-size:16px;font-weight:700;color:var(--green)">${R(avgRec)}</div><div style="font-size:8px;color:var(--muted)">${monthsActive} ${monthsActive===1?'mês ativo':'meses ativos'}</div></div>
-      <div><div class="ml">Volume médio/mês</div><div style="font-family:var(--serif);font-size:16px;font-weight:700;color:var(--green)">${avgVol.toFixed(1)}</div></div>
+      <div><div class="ml">Meses ativos</div><div style="font-family:var(--serif);font-size:16px;font-weight:700;color:var(--green)">${monthsActive}</div></div>
     </div>
     <div id="m-prods">${_modalRenderProds()}</div>
     <div style="font-size:9px;color:var(--dim);margin-top:8px">Clique fora para fechar</div>`;
   document.getElementById('modal').classList.add('open');
 }
-function closeModal(){document.getElementById('modal').classList.remove('open');}
+function closeModal(){
+  document.getElementById('modal').classList.remove('open');
+  if(_medicoChart){ try{ _medicoChart.destroy(); }catch(e){} _medicoChart = null; }
+}
 
 
 // ── DATE PICKER ───────────────────────────────────────────────────────────────
@@ -7588,7 +7756,7 @@ function renderMedHistorico(){
     const stickyBg = i%2===1 ? '#151716' : 'var(--bg2)';
     const repCol = RC_MAP[s.rep] || 'var(--muted)';
     html += `<tr style="${stripe}">`;
-    html += `<td style="position:sticky;left:0;background:${stickyBg};z-index:1;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;max-width:220px;border-right:1px solid var(--border)" title="${esc(s.medico)}">${esc(s.medico)}</td>`;
+    html += `<td style="position:sticky;left:0;background:${stickyBg};z-index:1;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;max-width:220px;border-right:1px solid var(--border)" title="${esc(s.medico)}"><span class="medico-link" data-medico="${esc(s.medico)}">${esc(s.medico)}</span></td>`;
     html += `<td style="padding:4px 6px;border-right:1px solid var(--border);color:${repCol};font-size:9px">${esc(s.rep||'')}</td>`;
     visibleMeses.forEach((m, mi) => {
       const d = s.meses[m] || { receita: 0, volume: 0 };

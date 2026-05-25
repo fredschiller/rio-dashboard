@@ -3336,8 +3336,8 @@ function renderAlertas(){
   document.getElementById('alert-count').style.color=cnt>0?'#f5877a':'#7efbb3';
   if(!filtered.length){document.getElementById('alertas-list').innerHTML='<div style="font-size:10px;color:var(--muted);padding:6px 0">Nenhum alerta.</div>';return;}
   document.getElementById('alertas-list').innerHTML=filtered.slice(0,8).map(a=>{
-    if(a.tipo==='inativo_90')return`<div class="alert-item"><div class="adot ared"></div><div style="flex:1;font-weight:500">${a.medico||'—'}</div><span class="pill ${PI[a.representante]||'pL'}" style="font-size:8px">${a.representante||'—'}</span><span style="font-size:9px;background:rgba(245,135,122,.12);color:#f5877a;padding:1px 5px;border-radius:3px">${a.dias||'?'}d</span></div>`;
-    if(a.tipo==='inativo_30')return`<div class="alert-item"><div class="adot agold"></div><div style="flex:1;font-weight:500">${a.medico||'—'}</div><span class="pill ${PI[a.representante]||'pL'}" style="font-size:8px">${a.representante||'—'}</span><span style="font-size:9px;background:rgba(245,201,122,.12);color:#f5c97a;padding:1px 5px;border-radius:3px">${a.dias||'?'}d</span></div>`;
+    if(a.tipo==='inativo_90')return`<div class="alert-item"><div class="adot ared"></div><div class="${a.medico?'medico-link':''}" data-medico="${esc(a.medico||'')}" style="flex:1;font-weight:500">${esc(a.medico||'—')}</div><span class="pill ${PI[a.representante]||'pL'}" style="font-size:8px">${a.representante||'—'}</span><span style="font-size:9px;background:rgba(245,135,122,.12);color:#f5877a;padding:1px 5px;border-radius:3px">${a.dias||'?'}d</span></div>`;
+    if(a.tipo==='inativo_30')return`<div class="alert-item"><div class="adot agold"></div><div class="${a.medico?'medico-link':''}" data-medico="${esc(a.medico||'')}" style="flex:1;font-weight:500">${esc(a.medico||'—')}</div><span class="pill ${PI[a.representante]||'pL'}" style="font-size:8px">${a.representante||'—'}</span><span style="font-size:9px;background:rgba(245,201,122,.12);color:#f5c97a;padding:1px 5px;border-radius:3px">${a.dias||'?'}d</span></div>`;
     if(a.tipo==='rep_abaixo_meta_semanal')return`<div class="alert-item"><div class="adot ablue"></div><div style="flex:1;font-weight:500">${a.representante||'—'} — meta sem.</div><span style="font-size:9px;background:rgba(122,184,245,.12);color:#7ab8f5;padding:1px 5px;border-radius:3px">${a.pct!=null?a.pct:'?'}%</span></div>`;
     return'';
   }).join('')+`<div style="display:flex;gap:8px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
@@ -4413,7 +4413,7 @@ function renderMedicosROI(){
     const nameShort=r.medico_curto||r.medico||'—';
     const nameFull=esc(r.medico||nameShort);
     const ultVis=r.ultima_visita?r.ultima_visita.split('-').reverse().join('/'):'—';
-    return `<tr><td style="font-weight:500" title="${nameFull}">${esc(nameShort.length>28?nameShort.slice(0,26)+'…':nameShort)}</td><td class="d"><span class="pill ${repCls}">${r.rep||'—'}</span></td><td class="r">${r.visitas||0}</td><td class="r" style="color:var(--muted)">${r.produtos_entregues||0}</td><td class="r">${R(r.investimento||0)}</td><td class="r">${R(r.receita||0)}</td><td class="r" style="color:var(--muted)">${r.pedidos||0}</td><td class="r">${roiHtml}</td><td class="r">${resHtml}</td><td class="d" style="font-size:9px;color:var(--muted)">${ultVis}</td></tr>`;
+    return `<tr><td style="font-weight:500" title="${nameFull}"><span class="medico-link" data-medico="${esc(r.medico||'')}">${esc(nameShort.length>28?nameShort.slice(0,26)+'…':nameShort)}</span></td><td class="d"><span class="pill ${repCls}">${r.rep||'—'}</span></td><td class="r">${r.visitas||0}</td><td class="r" style="color:var(--muted)">${r.produtos_entregues||0}</td><td class="r">${R(r.investimento||0)}</td><td class="r">${R(r.receita||0)}</td><td class="r" style="color:var(--muted)">${r.pedidos||0}</td><td class="r">${roiHtml}</td><td class="r">${resHtml}</td><td class="d" style="font-size:9px;color:var(--muted)">${ultVis}</td></tr>`;
   }).join('')+
     (rows.length>100?`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:8px;font-size:9px;font-style:italic">Mostrando top 100 de ${rows.length}</td></tr>`:'');
 }
@@ -4599,7 +4599,7 @@ function renderRankMedico(){
     const col=RC[r.rep]||'#888';const pc=PI[r.rep]||'pL';
     const barW=(r.receita/mxRec*100).toFixed(0);
     const varH=r.varPct!==null?`<span style="color:${r.varPct>=0?'var(--green)':'var(--red)'};font-weight:600">${r.varPct>=0?'+':''}${r.varPct.toFixed(0)}%</span>`:'<span style="color:var(--dim)">\u2014</span>';
-    return`<tr><td><div style="font-weight:500;font-size:11px">${esc(r.medico)}</div><div class="bw"><div class="bt" style="height:3px"><div class="bf" style="width:${barW}%;background:${col}"></div></div></div></td><td class="d"><span class="pill ${pc}" style="font-size:8px">${r.rep}</span></td><td class="r" style="color:var(--muted)">${r.volume}</td><td class="r">${R(r.receita)}</td><td class="r" style="color:var(--green);font-weight:600">${r.pct.toFixed(1)}%</td><td class="r">${varH}</td></tr>`;
+    return`<tr><td><div class="medico-link" data-medico="${esc(r.medico)}" style="font-weight:500;font-size:11px">${esc(r.medico)}</div><div class="bw"><div class="bt" style="height:3px"><div class="bf" style="width:${barW}%;background:${col}"></div></div></div></td><td class="d"><span class="pill ${pc}" style="font-size:8px">${r.rep}</span></td><td class="r" style="color:var(--muted)">${r.volume}</td><td class="r">${R(r.receita)}</td><td class="r" style="color:var(--green);font-weight:600">${r.pct.toFixed(1)}%</td><td class="r">${varH}</td></tr>`;
   }).join('');
 }
 

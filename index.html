@@ -885,6 +885,33 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
       <div id="vp-list" style="overflow-x:auto;max-height:520px;overflow-y:auto;border:1px solid var(--bd2);border-radius:6px"></div>
     </div>
 
+    <!-- 🏆 Top Prescritores por Produto -->
+    <div class="panel" id="tp-panel" style="margin-bottom:10px">
+      <div class="ph">
+        <div class="pt">🏆 Top Prescritores por Produto</div>
+        <div class="pn" id="tp-hint">selecione um produto</div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;align-items:end">
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Produto</span>
+          <select id="tp-produto" onchange="renderTopPresc()" style="font-size:11px;padding:5px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;min-width:240px"><option value="">— selecione —</option></select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Período</span>
+          <select id="tp-periodo" onchange="renderTopPresc()" style="font-size:10px;padding:5px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px"><option value="all">Tudo</option><option value="6m">Últimos 6 meses</option><option value="3m">Últimos 3 meses</option><option value="atual">Mês atual</option></select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Bairro</span>
+          <select id="tp-bairro" onchange="renderTopPresc()" style="font-size:10px;padding:5px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;min-width:140px"><option value="">Todos</option></select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Ordenar</span>
+          <select id="tp-sort" onchange="renderTopPresc()" style="font-size:10px;padding:5px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px"><option value="vol">Volume ↓</option><option value="rec">Receita ↓</option><option value="ult">Última compra ↓</option></select>
+        </div>
+      </div>
+      <div id="tp-list"></div>
+    </div>
+
     <!-- 👥 Estado da carteira de médicos (Novos / Ativos / Reativados / Perdidos) -->
     <div class="panel" id="estado-medicos-panel" style="margin-bottom:10px;display:none">
       <div class="ph">
@@ -4280,10 +4307,231 @@ function renderVisitadosPeso(){
   el.innerHTML = html;
 }
 
+// ── 🏆 TOP PRESCRITORES POR PRODUTO ───────────────────────────────────────
+function _tpUltimoPeriodo(detV, produto){
+  // Última mês em que o médico comprou esse produto específico
+  if(!detV.top_produtos_mensal) return null;
+  const periods = Object.keys(detV.top_produtos_mensal).sort().reverse();
+  for(const p of periods){
+    const list = detV.top_produtos_mensal[p] || [];
+    if(list.find(x => x.sku === produto && x.volume > 0)) return p;
+  }
+  return null;
+}
+function _populateTpProdutos(){
+  const sel = document.getElementById('tp-produto');
+  if(!sel || sel.options.length > 1) return;
+  const md = D.medicos_detail || {};
+  const totalByProd = {};
+  Object.keys(md).forEach(k => {
+    if(k === '__leads_potenciais') return;
+    (md[k].top_produtos || []).forEach(p => {
+      totalByProd[p.sku] = (totalByProd[p.sku] || 0) + (p.volume || 0);
+    });
+  });
+  const sorted = Object.entries(totalByProd).sort((a,b) => b[1] - a[1]);
+  sorted.forEach(([sku, vol]) => {
+    const o = document.createElement('option');
+    o.value = sku;
+    o.textContent = `${sku} (${vol} un total)`;
+    sel.appendChild(o);
+  });
+}
+function _populateTpBairros(produto, repFilter){
+  const sel = document.getElementById('tp-bairro');
+  if(!sel) return;
+  // Limpa exceto "Todos"
+  while(sel.options.length > 1) sel.remove(1);
+  if(!produto) return;
+  const md = D.medicos_detail || {};
+  const bairros = new Set();
+  Object.keys(md).forEach(k => {
+    if(k === '__leads_potenciais') return;
+    const v = md[k];
+    if(repFilter && !repFilter(v.carteira)) return;
+    const has = (v.top_produtos || []).find(p => p.sku === produto);
+    if(has && v.bairro) bairros.add(v.bairro);
+  });
+  [...bairros].sort().forEach(b => {
+    const o = document.createElement('option'); o.value=b; o.textContent=b;
+    sel.appendChild(o);
+  });
+}
+function renderTopPresc(){
+  _populateTpProdutos();
+  const produto    = (document.getElementById('tp-produto') || {}).value || '';
+  const periodoMode = (document.getElementById('tp-periodo') || {}).value || 'all';
+  const bairroVal  = (document.getElementById('tp-bairro') || {}).value || '';
+  const sortMode   = (document.getElementById('tp-sort') || {}).value || 'vol';
+
+  const el = document.getElementById('tp-list');
+  const hint = document.getElementById('tp-hint');
+  if(!el) return;
+
+  if(!produto){
+    el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:11px;padding:30px;font-style:italic">Selecione um produto pra ver o ranking de prescritores.</div>';
+    if(hint) hint.textContent = 'selecione um produto';
+    return;
+  }
+
+  const repFn = c => repIsAll() || repMatch(c);
+  _populateTpBairros(produto, repFn);
+
+  // Determina período-alvo
+  const mesAtual = (D.current && D.current.mes_atual) || '';
+  // Funções de agregação por período
+  function getProdData(detV){
+    if(periodoMode === 'all'){
+      const p = (detV.top_produtos || []).find(x => x.sku === produto);
+      return p ? {volume:p.volume, receita:p.receita, pct_mix:p.pct_mix||0, pct_mix_vol:p.pct_mix_vol||0} : null;
+    }
+    if(periodoMode === 'atual'){
+      const list = (detV.top_produtos_mensal || {})[mesAtual] || [];
+      const p = list.find(x => x.sku === produto);
+      return p ? {volume:p.volume, receita:p.receita, pct_mix:p.pct_mix||0, pct_mix_vol:p.pct_mix_vol||0} : null;
+    }
+    // 6m ou 3m: agrega últimos N meses
+    const n = periodoMode === '6m' ? 6 : 3;
+    const periods = Object.keys(detV.top_produtos_mensal || {}).sort().slice(-n);
+    let vol=0, rec=0, recAll=0, volAll=0;
+    periods.forEach(p => {
+      const list = (detV.top_produtos_mensal[p] || []);
+      list.forEach(x => { recAll += x.receita||0; volAll += x.volume||0; });
+      const pp = list.find(x => x.sku === produto);
+      if(pp){ vol += pp.volume||0; rec += pp.receita||0; }
+    });
+    if(vol === 0 && rec === 0) return null;
+    return {volume:vol, receita:rec,
+            pct_mix: recAll>0 ? Math.round(rec/recAll*1000)/10 : 0,
+            pct_mix_vol: volAll>0 ? Math.round(vol/volAll*1000)/10 : 0};
+  }
+
+  // Coleta rows
+  const md = D.medicos_detail || {};
+  const rows = [];
+  Object.keys(md).forEach(k => {
+    if(k === '__leads_potenciais') return;
+    const v = md[k];
+    if(!repFn(v.carteira)) return;
+    if(bairroVal && v.bairro !== bairroVal) return;
+    const pd = getProdData(v);
+    if(!pd || (pd.volume === 0 && pd.receita === 0)) return;
+    const ultimoMes = _tpUltimoPeriodo(v, produto);
+    rows.push({
+      medico: v.nome,
+      nome_completo: v.nome_completo || v.nome,
+      carteira: v.carteira,
+      bairro: v.bairro,
+      cidade: v.cidade,
+      especialidade: v.especialidade,
+      volume: pd.volume,
+      receita: pd.receita,
+      pct_mix: pd.pct_mix,
+      pct_mix_vol: pd.pct_mix_vol,
+      ultimo_mes: ultimoMes,
+      ultimo_pedido: v.ultimo_pedido,
+      dias_inativo: v.dias_inativo,
+      in_roster: v.in_roster,
+    });
+  });
+
+  // Sort
+  if(sortMode === 'rec') rows.sort((a,b) => b.receita - a.receita);
+  else if(sortMode === 'ult') rows.sort((a,b) => (b.ultimo_mes||'').localeCompare(a.ultimo_mes||''));
+  else rows.sort((a,b) => b.volume - a.volume);
+
+  if(hint){
+    const periodTxt = {all:'todo histórico', '6m':'últimos 6 meses', '3m':'últimos 3 meses', atual:'mês atual'}[periodoMode];
+    hint.textContent = `${rows.length} médico${rows.length===1?'':'s'} · ${periodTxt}${bairroVal?' · '+bairroVal:''}`;
+  }
+
+  if(rows.length === 0){
+    el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:11px;padding:20px;font-style:italic">Nenhum médico prescreveu esse produto no filtro atual.</div>';
+    return;
+  }
+
+  // Totais pra contexto
+  const totVol = rows.reduce((s,r)=>s+r.volume, 0);
+  const totRec = rows.reduce((s,r)=>s+r.receita, 0);
+
+  // Render — formato de pódio nas 3 primeiras + tabela das demais
+  const MN = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const fmtMes = m => m ? `${MN[parseInt(m.slice(5,7),10)-1]}/${m.slice(2,4)}` : '—';
+  const corStatus = d => d === null || d === undefined ? 'var(--muted)' :
+                         d <= 30 ? 'var(--green)' :
+                         d <= 60 ? 'var(--gold)' :
+                         d <= 90 ? '#f5a87a' : 'var(--red)';
+  const top3 = rows.slice(0, 3);
+  const rest = rows.slice(3, 30);
+
+  let html = `<div style="margin-bottom:8px;font-size:10px;color:var(--muted);text-align:center">
+    Total no filtro: <b style="color:var(--text)">${totVol} un</b> · <b style="color:var(--green)">${R(totRec)}</b>
+  </div>`;
+
+  // Top 3 em formato pódio
+  if(top3.length){
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:10px">';
+    const medals = ['🥇','🥈','🥉'];
+    top3.forEach((r,i) => {
+      const repCls = (typeof PI !== 'undefined' && PI[r.carteira]) || 'pL';
+      html += `<div class="medico-link" data-medico="${esc(r.medico)}" style="background:rgba(126,251,179,${0.06 - i*0.015});border:1px solid var(--bd2);border-left:3px solid var(--green);border-radius:6px;padding:10px 12px;cursor:pointer;transition:all .15s">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:4px">
+          <div style="font-size:14px">${medals[i]} <b style="font-size:12px">${esc(r.nome_completo)}</b></div>
+          ${r.carteira?`<span class="pill ${repCls}" style="font-size:8px">${esc(r.carteira)}</span>`:''}
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-bottom:8px">${r.bairro?'📍 '+esc(r.bairro):''} ${r.especialidade?' · '+esc(r.especialidade):''}</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px">
+          <div><div class="mp-kpi-label">Vol</div><div style="font-family:var(--serif);font-size:15px;font-weight:700">${r.volume}</div></div>
+          <div><div class="mp-kpi-label">Receita</div><div style="font-family:var(--serif);font-size:13px;font-weight:600;color:var(--green)">${R(r.receita)}</div></div>
+          <div><div class="mp-kpi-label">% mix dele</div><div style="font-family:var(--serif);font-size:13px;font-weight:600;color:var(--gold)">${r.pct_mix}%</div></div>
+          <div><div class="mp-kpi-label">Última</div><div style="font-family:var(--serif);font-size:12px;font-weight:600;color:${corStatus(r.dias_inativo)}">${fmtMes(r.ultimo_mes)}</div></div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // Rest em tabela compacta
+  if(rest.length){
+    html += `<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead>
+        <tr style="border-bottom:1px solid var(--bd2)">
+          <th style="text-align:center;font-size:9px;color:var(--muted);text-transform:uppercase;padding:6px;width:30px">#</th>
+          <th style="text-align:left;font-size:9px;color:var(--muted);text-transform:uppercase;padding:6px">Médico</th>
+          <th style="text-align:left;font-size:9px;color:var(--muted);text-transform:uppercase;padding:6px">Bairro</th>
+          <th style="text-align:center;font-size:9px;color:var(--muted);text-transform:uppercase;padding:6px">Vol</th>
+          <th style="text-align:center;font-size:9px;color:var(--muted);text-transform:uppercase;padding:6px">Receita</th>
+          <th style="text-align:center;font-size:9px;color:var(--muted);text-transform:uppercase;padding:6px">% mix</th>
+          <th style="text-align:center;font-size:9px;color:var(--muted);text-transform:uppercase;padding:6px">Última</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rest.map((r,i) => {
+          const repCls = (typeof PI !== 'undefined' && PI[r.carteira]) || 'pL';
+          return `<tr style="${i%2===1?'background:rgba(255,255,255,0.015)':''};border-bottom:1px solid rgba(255,255,255,0.03)">
+            <td style="text-align:center;padding:5px 6px;color:var(--muted);font-size:10px">${i+4}</td>
+            <td style="padding:5px 6px"><span class="medico-link" data-medico="${esc(r.medico)}" style="font-weight:500">${esc(r.nome_completo)}</span> ${r.carteira?`<span class="pill ${repCls}" style="font-size:8px;margin-left:4px">${esc(r.carteira)}</span>`:''}</td>
+            <td style="padding:5px 6px;color:var(--muted);font-size:10px">${esc(r.bairro||'—')}</td>
+            <td style="text-align:center;padding:5px 6px;font-weight:600">${r.volume}</td>
+            <td style="text-align:center;padding:5px 6px">${R(r.receita)}</td>
+            <td style="text-align:center;padding:5px 6px;color:var(--gold)">${r.pct_mix}%</td>
+            <td style="text-align:center;padding:5px 6px;color:${corStatus(r.dias_inativo)};font-size:10px">${fmtMes(r.ultimo_mes)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+    if(rows.length > 30){
+      html += `<div style="text-align:center;color:var(--muted);font-size:10px;padding:8px;font-style:italic">Mostrando top 30 de ${rows.length}</div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
 function renderMedicosTab(){
   renderFiltroUFBanner();
   renderVisitar();
   renderVisitadosPeso();
+  renderTopPresc();
   renderMedicosKPIs();
   renderEstadoMedicos();
   renderMapaEstados();

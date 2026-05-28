@@ -275,7 +275,26 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
   .filters .fsep{display:none;}
   .filters .fl{font-size:9px;width:100%;margin-top:4px;}
   .filters .fbtn{font-size:10px;padding:5px 10px;}
-  .filters .date-picker-wrap{display:none;}
+  /* Mobile: mostra date picker mas com dropdown adaptado */
+  .filters .date-picker-wrap{display:inline-flex;}
+  .date-picker-btn{font-size:9px;padding:3px 8px;}
+  .dp-dropdown{
+    position:fixed!important;
+    top:50%!important;left:50%!important;
+    transform:translate(-50%,-50%);
+    width:calc(100vw - 32px);max-width:340px;
+    min-width:0;
+    padding:14px;
+    max-height:80vh;overflow-y:auto;
+    box-shadow:0 12px 48px rgba(0,0,0,.7);
+  }
+  .dp-dropdown::before{
+    content:"";position:fixed;inset:0;
+    background:rgba(0,0,0,.5);z-index:-1;
+  }
+  .dp-input{font-size:14px;padding:6px 8px;min-height:32px;}
+  .dp-preset{font-size:11px;padding:5px 10px;min-height:30px;}
+  .dp-clear,.dp-apply{font-size:12px;padding:7px 14px;min-height:34px;}
 
   /* Meta hero — compact */
   .meta-hero{padding:10px 12px;gap:10px;}
@@ -4390,12 +4409,12 @@ function renderVisitadosPeso(){
 
 // ── 🏆 TOP PRESCRITORES POR PRODUTO ───────────────────────────────────────
 function _tpUltimoPeriodo(detV, produto){
-  // Última mês em que o médico comprou esse produto específico
+  // Última mês em que o médico comprou esse produto (qualquer variante que unifica pro mesmo canônico)
   if(!detV.top_produtos_mensal) return null;
   const periods = Object.keys(detV.top_produtos_mensal).sort().reverse();
   for(const p of periods){
     const list = detV.top_produtos_mensal[p] || [];
-    if(list.find(x => x.sku === produto && x.volume > 0)) return p;
+    if(list.find(x => x.sku && x.volume > 0 && unifySku(x.sku) === produto)) return p;
   }
   return null;
 }
@@ -4407,10 +4426,15 @@ function _populateTpProdutos(){
   Object.keys(md).forEach(k => {
     if(k === '__leads_potenciais') return;
     (md[k].top_produtos || []).forEach(p => {
-      totalByProd[p.sku] = (totalByProd[p.sku] || 0) + (p.volume || 0);
+      if(!p.sku) return;
+      // Unifica nome (mesmo produto com variações na escrita) e descarta travel/mini
+      if(isSkuBogus(p.sku) || isSkuExcluded(p.sku)) return;
+      const uName = unifySku(p.sku);
+      if(isSkuExcluded(uName) || isSkuBogus(uName)) return;
+      totalByProd[uName] = (totalByProd[uName] || 0) + (p.volume || 0);
     });
   });
-  const sorted = Object.entries(totalByProd).sort((a,b) => b[1] - a[1]);
+  const sorted = Object.entries(totalByProd).filter(([,v])=>v>0).sort((a,b) => b[1] - a[1]);
   sorted.forEach(([sku, vol]) => {
     const o = document.createElement('option');
     o.value = sku;
@@ -4430,7 +4454,7 @@ function _populateTpBairros(produto, repFilter){
     if(k === '__leads_potenciais') return;
     const v = md[k];
     if(repFilter && !repFilter(v.carteira)) return;
-    const has = (v.top_produtos || []).find(p => p.sku === produto);
+    const has = (v.top_produtos || []).find(p => p.sku && unifySku(p.sku) === produto);
     if(has && v.bairro) bairros.add(v.bairro);
   });
   [...bairros].sort().forEach(b => {
@@ -4460,16 +4484,28 @@ function renderTopPresc(){
 
   // Determina período-alvo
   const mesAtual = (D.current && D.current.mes_atual) || '';
-  // Funções de agregação por período
+  // Helper: agrega variantes que unificam pro mesmo nome canônico
+  const matchSku = sku => !isSkuBogus(sku) && !isSkuExcluded(sku) && !isSkuExcluded(unifySku(sku)) && unifySku(sku) === produto;
   function getProdData(detV){
     if(periodoMode === 'all'){
-      const p = (detV.top_produtos || []).find(x => x.sku === produto);
-      return p ? {volume:p.volume, receita:p.receita, pct_mix:p.pct_mix||0, pct_mix_vol:p.pct_mix_vol||0} : null;
+      // Soma todas as variantes que unificam pro produto canônico
+      let vol=0, rec=0;
+      (detV.top_produtos || []).forEach(p => { if(matchSku(p.sku)){ vol+=p.volume||0; rec+=p.receita||0; } });
+      if(vol === 0 && rec === 0) return null;
+      const total = detV.receita_total || 0;
+      return {volume:vol, receita:rec,
+              pct_mix: total>0 ? Math.round(rec/total*1000)/10 : 0,
+              pct_mix_vol: 0};
     }
     if(periodoMode === 'atual'){
       const list = (detV.top_produtos_mensal || {})[mesAtual] || [];
-      const p = list.find(x => x.sku === produto);
-      return p ? {volume:p.volume, receita:p.receita, pct_mix:p.pct_mix||0, pct_mix_vol:p.pct_mix_vol||0} : null;
+      let vol=0, rec=0, recAll=0, volAll=0;
+      list.forEach(x => { recAll += x.receita||0; volAll += x.volume||0; });
+      list.forEach(x => { if(matchSku(x.sku)){ vol+=x.volume||0; rec+=x.receita||0; } });
+      if(vol === 0 && rec === 0) return null;
+      return {volume:vol, receita:rec,
+              pct_mix: recAll>0 ? Math.round(rec/recAll*1000)/10 : 0,
+              pct_mix_vol: volAll>0 ? Math.round(vol/volAll*1000)/10 : 0};
     }
     // 6m ou 3m: agrega últimos N meses
     const n = periodoMode === '6m' ? 6 : 3;
@@ -4478,8 +4514,7 @@ function renderTopPresc(){
     periods.forEach(p => {
       const list = (detV.top_produtos_mensal[p] || []);
       list.forEach(x => { recAll += x.receita||0; volAll += x.volume||0; });
-      const pp = list.find(x => x.sku === produto);
-      if(pp){ vol += pp.volume||0; rec += pp.receita||0; }
+      list.forEach(x => { if(matchSku(x.sku)){ vol+=x.volume||0; rec+=x.receita||0; } });
     });
     if(vol === 0 && rec === 0) return null;
     return {volume:vol, receita:rec,

@@ -2311,6 +2311,247 @@ function calcYoY(tab){
 const IRRELEVANT_REPS = new Set(['Fred','Riô']);
 function isIrrelevantRep(r){ return IRRELEVANT_REPS.has(r); }
 
+// ── DRIVER de crescimento/queda — 1º insight de TODA aba ────────────────
+// Quebra a variação MoM/WoW/YoY de receita por dimensão (canal/rep/SKU/loja/médico)
+// pra mostrar quem está PUXANDO o resultado. Ao filtrar, aprofunda no porquê.
+function calcDriver(tab){
+  if(!D) return null;
+  const c = D.current || {};
+  const filtered = !repIsAll();
+  let comparison;
+  if(dpActive) comparison = 'YoY';
+  else if(period === 'mes') comparison = 'MoM';
+  else if(period === 'semana') comparison = 'WoW';
+  else comparison = 'YoY';
+
+  // Helper: semana_anterior (data_referencia - 7 dias)
+  const prevWeekStr = ()=>{
+    const ref = c.data_referencia ? c.data_referencia.split('/').reverse().join('-') : '';
+    if(!ref) return '';
+    const [yy,mm,dd] = ref.split('-').map(Number);
+    const dt = new Date(yy, mm-1, dd); dt.setDate(dt.getDate()-7);
+    const y = dt.getFullYear(), m = String(dt.getMonth()+1).padStart(2,'0'), d = String(dt.getDate()).padStart(2,'0');
+    return dayToWeek(`${y}-${m}-${d}`);
+  };
+  const maxDay = parseInt((c.data_referencia||'').split('/')[0]) || 31;
+
+  let curRows, prevRows, dimKey, dimLabel, prevLabel;
+  const useLojaSrc  = (tab === 'varejo');
+  const useMedicoSrc = (tab === 'medicos');
+  const useSkuSrc   = filtered && !useLojaSrc && !useMedicoSrc;
+
+  if(useLojaSrc){
+    const mm = (D.venancio_detail && D.venancio_detail.matrix_monthly) || [];
+    if(dpActive && dpStart && dpEnd){
+      const sm = dpStart.slice(0,7), em = dpEnd.slice(0,7);
+      const ps = dpStart.replace(/^(\d{4})/, y=>''+(parseInt(y)-1)).slice(0,7);
+      const pe = dpEnd.replace(/^(\d{4})/, y=>''+(parseInt(y)-1)).slice(0,7);
+      curRows = mm.filter(m => m.periodo >= sm && m.periodo <= em);
+      prevRows = mm.filter(m => m.periodo >= ps && m.periodo <= pe);
+      prevLabel = formatDate(dpStart.replace(/^(\d{4})/, y=>''+(parseInt(y)-1)))+' a '+formatDate(dpEnd.replace(/^(\d{4})/, y=>''+(parseInt(y)-1)));
+    } else if(period === 'mes' || period === 'semana'){
+      if(period === 'semana') comparison = 'MoM (Varejo é mensal)';
+      curRows  = mm.filter(m => m.periodo === c.mes_atual);
+      prevRows = mm.filter(m => m.periodo === c.mes_anterior);
+      prevLabel = fM(c.mes_anterior);
+      // Pró-rata: prev (mês cheio) escala pro dia-referencia do mês atual
+      const dimAnt = c.mes_anterior ? new Date(+c.mes_anterior.split('-')[0], +c.mes_anterior.split('-')[1], 0).getDate() : 30;
+      const fator = maxDay / dimAnt;
+      prevRows = prevRows.map(r => ({...r, receita: (r.receita||0) * fator}));
+    } else {
+      const yoyMonth = (c.mes_atual||'').replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+      curRows = mm; prevRows = mm.filter(m => m.periodo <= yoyMonth);
+      prevLabel = 'até ' + fM(yoyMonth);
+    }
+    if(filtered){ curRows = curRows.filter(m => repMatch(m.rep)); prevRows = prevRows.filter(m => repMatch(m.rep)); }
+    curRows = curRows.filter(m => !isIrrelevantRep(m.rep));
+    prevRows = prevRows.filter(m => !isIrrelevantRep(m.rep));
+    dimKey = m => m.loja_clean || '?'; dimLabel = 'Loja';
+  }
+  else if(useMedicoSrc){
+    const mm = (D.daily && D.daily.medico_monthly) || [];
+    const md = (D.daily && D.daily.medicos) || [];
+    if(dpActive && dpStart && dpEnd){
+      const ps = dpStart.replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+      const pe = dpEnd.replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+      curRows = md.filter(r => r.data >= dpStart && r.data <= dpEnd);
+      prevRows = md.filter(r => r.data >= ps && r.data <= pe);
+      prevLabel = formatDate(ps)+' a '+formatDate(pe);
+    } else if(period === 'mes'){
+      curRows = mm.filter(r => r.periodo === c.mes_atual);
+      // Fair MoM via medicos diário até maxDay
+      const prevDaily = md.filter(r => (r.data||'').startsWith(c.mes_anterior) && parseInt((r.data||'').split('-')[2]||'0') <= maxDay);
+      const agg = {};
+      prevDaily.forEach(r => {
+        const k = (r.rep||'')+'|'+(r.medico||'');
+        if(!agg[k]) agg[k] = {rep:r.rep, medico:r.medico, receita:0};
+        agg[k].receita += (r.receita||0);
+      });
+      prevRows = Object.values(agg);
+      prevLabel = fM(c.mes_anterior)+' (até dia '+maxDay+')';
+    } else if(period === 'semana'){
+      const semAnt = prevWeekStr();
+      curRows = md.filter(r => dayToWeek(r.data) === c.semana_atual);
+      prevRows = md.filter(r => dayToWeek(r.data) === semAnt);
+      prevLabel = fW(semAnt);
+    } else {
+      const lastDate = c.data_referencia ? c.data_referencia.split('/').reverse().join('-') : '';
+      const lastDatePrev = lastDate.replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+      curRows = md.filter(r => (r.data||'').startsWith('2026') && r.data <= lastDate);
+      prevRows = md.filter(r => (r.data||'').startsWith('2025') && r.data <= lastDatePrev);
+      prevLabel = 'mesmo periodo 2025';
+    }
+    if(filtered){ curRows = curRows.filter(r => repMatch(r.rep)); prevRows = prevRows.filter(r => repMatch(r.rep)); }
+    curRows = curRows.filter(r => !isIrrelevantRep(r.rep));
+    prevRows = prevRows.filter(r => !isIrrelevantRep(r.rep));
+    dimKey = r => r.medico || '?'; dimLabel = 'Médico';
+  }
+  else if(useSkuSrc){
+    const isMonthly = (tab==='b2bcs'||tab==='b2btotal');
+    const skuSrc = isMonthly ? ((D.b2b_canais && D.b2b_canais.sku_monthly) || []) : ((D.daily && D.daily.sku_daily) || []);
+    if(dpActive && dpStart && dpEnd){
+      if(isMonthly){
+        const sm = dpStart.slice(0,7), em = dpEnd.slice(0,7);
+        const ps = dpStart.replace(/^(\d{4})/, y=>''+(parseInt(y)-1)).slice(0,7);
+        const pe = dpEnd.replace(/^(\d{4})/, y=>''+(parseInt(y)-1)).slice(0,7);
+        curRows = skuSrc.filter(r => (r.periodo||'') >= sm && (r.periodo||'') <= em);
+        prevRows = skuSrc.filter(r => (r.periodo||'') >= ps && (r.periodo||'') <= pe);
+      } else {
+        const ps = dpStart.replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+        const pe = dpEnd.replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+        curRows = skuSrc.filter(r => (r.dia||'') >= dpStart && (r.dia||'') <= dpEnd);
+        prevRows = skuSrc.filter(r => (r.dia||'') >= ps && (r.dia||'') <= pe);
+      }
+      prevLabel = formatDate(dpStart.replace(/^(\d{4})/, y=>''+(parseInt(y)-1)))+' a '+formatDate(dpEnd.replace(/^(\d{4})/, y=>''+(parseInt(y)-1)));
+    } else if(period === 'mes'){
+      if(isMonthly){
+        curRows = skuSrc.filter(r => (r.periodo||'') === c.mes_atual);
+        prevRows = skuSrc.filter(r => (r.periodo||'') === c.mes_anterior);
+        prevLabel = fM(c.mes_anterior);
+        // pró-rata prev mensal
+        const dimAnt = c.mes_anterior ? new Date(+c.mes_anterior.split('-')[0], +c.mes_anterior.split('-')[1], 0).getDate() : 30;
+        const fator = maxDay / dimAnt;
+        prevRows = prevRows.map(r => ({...r, receita: (r.receita||0) * fator}));
+      } else {
+        curRows = skuSrc.filter(r => (r.dia||'').startsWith(c.mes_atual));
+        prevRows = skuSrc.filter(r => (r.dia||'').startsWith(c.mes_anterior) && parseInt((r.dia||'').split('-')[2]||'0') <= maxDay);
+        prevLabel = fM(c.mes_anterior)+' (até dia '+maxDay+')';
+      }
+    } else if(period === 'semana'){
+      const semAnt = prevWeekStr();
+      if(isMonthly){
+        comparison = 'MoM (sku é mensal)';
+        curRows = skuSrc.filter(r => (r.periodo||'') === c.mes_atual);
+        prevRows = skuSrc.filter(r => (r.periodo||'') === c.mes_anterior);
+        prevLabel = fM(c.mes_anterior);
+      } else {
+        curRows = skuSrc.filter(r => dayToWeek(r.dia||'') === c.semana_atual);
+        prevRows = skuSrc.filter(r => dayToWeek(r.dia||'') === semAnt);
+        prevLabel = fW(semAnt);
+      }
+    } else {
+      curRows = skuSrc; prevRows = []; prevLabel = ''; comparison = '';
+    }
+    // canal filter por escopo de aba (sku_daily tem canal/sub_canal)
+    if(!isMonthly){
+      curRows  = _scopeFilter(curRows,  tab);
+      prevRows = _scopeFilter(prevRows, tab);
+    }
+    if(filtered){ curRows = curRows.filter(r => repMatch(r.rep)); prevRows = prevRows.filter(r => repMatch(r.rep)); }
+    curRows = curRows.filter(r => !isIrrelevantRep(r.rep));
+    prevRows = prevRows.filter(r => !isIrrelevantRep(r.rep));
+    dimKey = r => r.sku || r.produto || '?'; dimLabel = 'SKU';
+  }
+  else {
+    // Default: daily.rows → quebra por canal (geral) ou por rep (concierge/b2bcs/b2btotal)
+    const daily = (D.daily && D.daily.rows) || [];
+    if(dpActive && dpStart && dpEnd){
+      curRows = daily.filter(r => r.data >= dpStart && r.data <= dpEnd);
+      const ps = dpStart.replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+      const pe = dpEnd.replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+      prevRows = daily.filter(r => r.data >= ps && r.data <= pe);
+      prevLabel = formatDate(ps)+' a '+formatDate(pe);
+    } else if(period === 'mes'){
+      curRows = daily.filter(r => (r.data||'').startsWith(c.mes_atual));
+      prevRows = daily.filter(r => (r.data||'').startsWith(c.mes_anterior) && parseInt((r.data||'').split('-')[2]||'0') <= maxDay);
+      prevLabel = fM(c.mes_anterior)+' (até dia '+maxDay+')';
+    } else if(period === 'semana'){
+      const semAnt = prevWeekStr();
+      curRows = daily.filter(r => dayToWeek(r.data) === c.semana_atual);
+      prevRows = daily.filter(r => dayToWeek(r.data) === semAnt);
+      prevLabel = fW(semAnt);
+    } else {
+      const lastDate = c.data_referencia ? c.data_referencia.split('/').reverse().join('-') : '';
+      const lastDatePrev = lastDate.replace(/^(\d{4})/, y=>''+(parseInt(y)-1));
+      curRows = daily.filter(r => (r.data||'').startsWith('2026') && r.data <= lastDate);
+      prevRows = daily.filter(r => (r.data||'').startsWith('2025') && r.data <= lastDatePrev);
+      prevLabel = 'mesmo periodo 2025';
+    }
+    if(filtered){ curRows = curRows.filter(r => repMatch(r.rep)); prevRows = prevRows.filter(r => repMatch(r.rep)); }
+    curRows = curRows.filter(r => !isIrrelevantRep(r.rep));
+    prevRows = prevRows.filter(r => !isIrrelevantRep(r.rep));
+    curRows  = _scopeFilter(curRows,  tab);
+    prevRows = _scopeFilter(prevRows, tab);
+    if(tab === 'geral'){ dimKey = r => r.canal || '?'; dimLabel = 'Canal'; }
+    else                { dimKey = r => r.rep   || '?'; dimLabel = 'Rep';   }
+  }
+
+  // ── Agrega por dimensão ──
+  const curBy = {}, prevBy = {};
+  curRows.forEach(r => { const k = dimKey(r); curBy[k]  = (curBy[k]||0)  + (r.receita||0); });
+  prevRows.forEach(r => { const k = dimKey(r); prevBy[k] = (prevBy[k]||0) + (r.receita||0); });
+  const keys = new Set([...Object.keys(curBy), ...Object.keys(prevBy)]);
+  const breakdown = [...keys].map(k => ({
+    name: k,
+    curRec:  curBy[k]  || 0,
+    prevRec: prevBy[k] || 0,
+    delta:   (curBy[k]||0) - (prevBy[k]||0)
+  }));
+  const curTotal  = Object.values(curBy ).reduce((s,v)=>s+v,0);
+  const prevTotal = Object.values(prevBy).reduce((s,v)=>s+v,0);
+  const totalDelta = curTotal - prevTotal;
+
+  return { dimLabel, breakdown, totalDelta, curTotal, prevTotal, prevLabel, comparison };
+}
+
+function driverInsight(driver){
+  if(!driver) return null;
+  const { dimLabel, breakdown, totalDelta, curTotal, prevTotal, prevLabel, comparison } = driver;
+  if(prevTotal <= 0 || curTotal <= 0 || breakdown.length === 0) return null;
+
+  // Filtra nomes vazios/anônimos
+  const valid = breakdown.filter(b => b.name && b.name !== '?' && b.name !== 'Sem rep');
+  if(!valid.length) return null;
+  const positive = valid.filter(b => b.delta > 0).sort((a,b) => b.delta - a.delta);
+  const negative = valid.filter(b => b.delta < 0).sort((a,b) => a.delta - b.delta);
+  const direction = totalDelta >= 0;
+  let top, counter;
+  if(direction){ top = positive[0]; counter = negative[0]; }
+  else         { top = negative[0]; counter = positive[0]; }
+  if(!top) return null;
+
+  const icon = direction ? 'up' : 'dn';
+  const tagClass = direction ? 'pos' : 'neg';
+  const verb = direction ? 'puxa o crescimento' : 'puxa a queda';
+  // Prefixa só quando o tipo da entidade não é óbvio do nome
+  const needsPrefix = (dimLabel === 'Loja' || dimLabel === 'SKU');
+  const namePrefix = needsPrefix ? (dimLabel + ' ') : '';
+  const sign = top.delta >= 0 ? '+' : '-';
+  let text = `${namePrefix}${top.name} ${verb} (${sign}${R2(Math.abs(top.delta))} vs ${prevLabel})`;
+
+  if(counter && Math.abs(counter.delta) >= Math.abs(top.delta) * 0.2){
+    const cSign = counter.delta >= 0 ? '+' : '-';
+    const cAmt  = R2(Math.abs(counter.delta));
+    const cPref = needsPrefix ? (dimLabel + ' ') : '';
+    if(direction)  text += `; ${cPref}${counter.name} amortece ${cSign}${cAmt}`;
+    else           text += `; ${cPref}${counter.name} segura ${cSign}${cAmt}`;
+  }
+
+  const pctTotal = totalDelta / prevTotal * 100;
+  const tag = `${comparison || 'YoY'} ${pctTotal>=0?'+':''}${pctTotal.toFixed(0)}%`;
+  return { icon, text, tag, tagClass, isYoY: (comparison === 'YoY') };
+}
+
 function generateInsights(tab){
   if(!D) return [];
   const c = D.current || {};
@@ -2323,8 +2564,13 @@ function generateInsights(tab){
   const yoy = calcYoY(tab);
   const tabLabel = tab==='concierge'?'Concierge':tab==='b2bcs'?'B2B (C+S)':tab==='b2btotal'?'B2B Total':tab==='varejo'?'Varejo':'';
 
-  // ── 1. YoY receita ────────────────────────────────────────────────────────
-  if(yoy.yoyRec !== null){
+  // ── 0. DRIVER de crescimento/queda — SEMPRE PRIMEIRO (regra Fred 15/06) ──
+  const drv = calcDriver(tab);
+  const drvIns = driverInsight(drv);
+  if(drvIns){ add(drvIns.icon, drvIns.text, drvIns.tag, drvIns.tagClass); }
+
+  // ── 1. YoY receita — suprime se driver já é YoY (evita duplicação) ──────
+  if(yoy.yoyRec !== null && !(drvIns && drvIns.isYoY)){
     const v = yoy.yoyRec;
     const label = tabLabel ? `Receita ${tabLabel}` : 'Receita';
     if(v <= -10){

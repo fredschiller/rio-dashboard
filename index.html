@@ -938,6 +938,10 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
       <div id="ritmo-cards-medicos" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
     </div>
 
+    <!-- KPI cards médicos (movidos pro topo - regra Fred 15/06) -->
+    <div class="kpi-row kpi-6" id="medicos-kpis"></div>
+    <div id="insights-medicos"></div>
+
     <!-- 🎯 Quem visitar essa semana -->
     <div class="panel" id="visitar-panel" style="margin-bottom:10px">
       <div class="ph">
@@ -1024,10 +1028,6 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:
         <div id="estado-medicos-listas" style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:12px"></div>
       </details>
     </div>
-
-    <!-- KPI cards médicos -->
-    <div class="kpi-row kpi-6" id="medicos-kpis"></div>
-    <div id="insights-medicos"></div>
 
     <!-- Mapa de vendas por estado -->
     <div class="panel">
@@ -1323,6 +1323,33 @@ function bdgFor(v){
 // XSS escape: sanitize strings before inserting into HTML
 function esc(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
+
+// ── Helpers para comparação JUSTA (mês/ano parcial vs mês/ano anterior nos mesmos dias) ──
+// CLAUDE.md regra: "Comparação MoM/YoY deve ser do início do mês/ano até a data atual
+// vs o mesmo período no passado, NUNCA vs mês cheio do passado."
+function _dimInMonth(yyyymm){
+  if(!yyyymm) return 30;
+  const [y,m] = yyyymm.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+function _maxDay(){
+  const c = D && D.current ? D.current : {};
+  return parseInt((c.data_referencia||'').split('/')[0]) || 31;
+}
+// Escala valor agregado de mês cheio anterior pra "1..maxDay" do atual.
+// Use SÓ quando a fonte de dados é mensal (matrix_monthly, sku_monthly, mm).
+// Quando filtrar de daily, prefira o filtro por dia <= maxDay.
+function _proRataPrev(value, prevMonthStr){
+  if(value === null || value === undefined || !isFinite(value)) return value;
+  const dim = _dimInMonth(prevMonthStr);
+  if(dim <= 0) return value;
+  return value * (_maxDay() / dim);
+}
+// Para dpActive ranges: calcula equivalente "ano anterior" do mesmo range.
+function _shiftRangeYear(yyyymmdd, n){
+  if(!yyyymmdd) return '';
+  return yyyymmdd.replace(/^(\d{4})/, y => ''+(parseInt(y)+n));
+}
 
 // ── CORE: get pre-computed rep+period slice ──────────────────────────────────
 function getSlice(){
@@ -2225,11 +2252,12 @@ function calcYoY(tab){
       curLabel  = formatDate(dpStart)+' - '+formatDate(dpEnd);
       prevLabel = formatDate(dpStart.replace(/^(\d{4})/, (y)=>''+(parseInt(y)-1)))+' - '+formatDate(dpEnd.replace(/^(\d{4})/, (y)=>''+(parseInt(y)-1)));
     } else if(period === 'mes'){
+      // FAIR YoY: prev (mês cheio do ano passado) escala pra mesmo dia-do-mês do atual
       curRec     = curMM.filter(m => m.periodo === mesAtual).reduce((s,m)=>s+m.receita,0);
-      prevRec    = prevMM.filter(m => m.periodo === mesYoY).reduce((s,m)=>s+m.receita,0);
+      prevRec    = _proRataPrev(prevMM.filter(m => m.periodo === mesYoY).reduce((s,m)=>s+m.receita,0), mesYoY);
       curVendas  = curMM.filter(m => m.periodo === mesAtual).reduce((s,m)=>s+m.volume,0);
-      prevVendas = prevMM.filter(m => m.periodo === mesYoY).reduce((s,m)=>s+m.volume,0);
-      curLabel = fM(mesAtual); prevLabel = fM(mesYoY);
+      prevVendas = _proRataPrev(prevMM.filter(m => m.periodo === mesYoY).reduce((s,m)=>s+m.volume,0), mesYoY);
+      curLabel = fM(mesAtual); prevLabel = fM(mesYoY)+' (até dia '+_maxDay()+')';
     } else if(period === 'semana'){
       // Varejo Venâncio é mensal — aproxima semana = mês × (7/dias_no_mês)
       const _dim = (yyyymm) => { const [y,m] = yyyymm.split('-').map(Number); return new Date(y, m, 0).getDate(); };
@@ -2268,11 +2296,13 @@ function calcYoY(tab){
     curLabel = formatDate(dpStart)+' - '+formatDate(dpEnd);
     prevLabel = formatDate(ps)+' - '+formatDate(pe);
   } else if(period === 'mes'){
+    // FAIR YoY: junho-26 (1-15) vs junho-25 (1-15 — truncado ao mesmo dia)
     const mes = c.mes_atual || '';
     const mesYoY = mes.replace(/^(\d{4})/, (y)=>''+(parseInt(y)-1));
+    const maxDay = _maxDay();
     curRows = daily.filter(r => r.data.startsWith(mes));
-    prevRows = daily.filter(r => r.data.startsWith(mesYoY));
-    curLabel = fM(mes); prevLabel = fM(mesYoY);
+    prevRows = daily.filter(r => r.data.startsWith(mesYoY) && parseInt((r.data||'').split('-')[2]||'0') <= maxDay);
+    curLabel = fM(mes); prevLabel = fM(mesYoY)+' (até dia '+maxDay+')';
   } else if(period === 'semana'){
     const sem = c.semana_atual || '';
     const semYoY = sem.replace(/^(\d{4})/, (y)=>''+(parseInt(y)-1));
@@ -2596,14 +2626,8 @@ function generateInsights(tab){
   // meta atual é provisória, NÃO destacar insights baseados em meta em nenhuma
   // aba/filtro. Quando meta real for definida, restaurar do git history.
 
-  // ── 5. Channel concentration — only on geral tab ──────────────────────────
-  if(tab==='geral' && repIsAll()){
-    const sl = dpActive ? null : getSlice();
-    if(sl && sl.mix){
-      const entries = Object.entries(sl.mix).sort((a,b)=>b[1].pct-a[1].pct);
-      if(entries.length && entries[0][1].pct > 75) add('warn', `Canal ${entries[0][0]} representa ${entries[0][1].pct.toFixed(0)}% da receita — alta concentracao`, 'Diversificar', 'neu');
-    }
-  }
+  // ── 5. Channel concentration — REMOVIDO (15/06/2026, decisão Fred):
+  // era descritivo ("Canal X = Y%"), não responde "por que cresce/cai".
 
   // ── 6. Inactivity alerts — only on geral and b2b tabs ─────────────────────
   if(tab==='geral'||tab==='b2bcs'||tab==='b2btotal'){
@@ -2625,59 +2649,33 @@ function generateInsights(tab){
     else if(ticketYoY <= -15) add('dn', `Ticket medio${tabLabel?' '+tabLabel:''} caiu ${Math.abs(ticketYoY).toFixed(0)}% vs ano anterior (${R2(ticketPrev)} → ${R2(ticketCur)})`, `${ticketYoY.toFixed(0)}%`, 'neg');
   }
 
-  // ── 8. Top SKU (dynamic — respects period + rep filters) ─────────────────
-  {
-    const skuSrc = (tab==='b2bcs'||tab==='b2btotal') ? (D.b2b_canais&&D.b2b_canais.sku_monthly||[]) : (D.daily&&D.daily.sku_daily||[]);
-    const cc = D.current||{};
-    let skuFiltered = skuSrc;
-    if(dpActive && dpStart && dpEnd){
-      const sm=dpStart.slice(0,7), em=dpEnd.slice(0,7);
-      skuFiltered = skuFiltered.filter(r=>(r.periodo||r.dia||'').slice(0,7)>=sm && (r.periodo||r.dia||'').slice(0,7)<=em);
-    } else if(period==='mes'){
-      skuFiltered = skuFiltered.filter(r=>(r.periodo||r.dia||'').startsWith(cc.mes_atual||''));
-    }
-    if(!repIsAll()) skuFiltered = skuFiltered.filter(r=>repMatch(r.rep));
-    skuFiltered = skuFiltered.filter(r=>!isIrrelevantRep(r.rep));
-    const skuAgg = {};
-    skuFiltered.forEach(r=>{ const k=r.sku||r.produto||'?'; skuAgg[k]=(skuAgg[k]||0)+(r.receita||0); });
-    const skuRank = Object.entries(skuAgg).sort((a,b)=>b[1]-a[1]);
-    if(skuRank.length >= 2){
-      const topRec = skuRank[0][1];
-      const totalRec = skuRank.reduce((s,e)=>s+e[1],0);
-      const topPct = totalRec>0 ? (topRec/totalRec*100).toFixed(0) : 0;
-      if(topPct > 15) add('info', `${skuRank[0][0]} lidera com ${topPct}% da receita em produtos (${R(topRec)})`, 'Top produto', 'neu');
-    }
-  }
+  // ── 8. Top SKU — REMOVIDO (15/06/2026): descritivo, não responde "por quê".
+  //    O driver §0 já mostra qual SKU empurra crescimento/queda quando filtrado.
 
-  // ── 9. Varejo-specific: top loja ──────────────────────────────────────────
+  // ── 9. Varejo-specific: lojas em queda — KEEP (explica queda de receita) ──
   if(tab==='varejo'){
     const vd=D.venancio_detail;
-    if(vd){
+    if(vd && period==='mes' && !dpActive){
       const mm=vd.matrix_monthly||[];
       const mesA=D.current.mes_atual;
-      let filtered=mm;
-      if(dpActive&&dpStart&&dpEnd){const s=dpStart.slice(0,7),e=dpEnd.slice(0,7);filtered=mm.filter(m=>m.periodo>=s&&m.periodo<=e);}
-      else if(period==='mes')filtered=mm.filter(m=>m.periodo===mesA);
-      if(!repIsAll())filtered=filtered.filter(m=>repMatch(m.rep));
-      filtered=filtered.filter(m=>!isIrrelevantRep(m.rep));
-      const lojaAgg={};
-      filtered.forEach(m=>{const k=m.loja_clean||'?';if(!lojaAgg[k])lojaAgg[k]=0;lojaAgg[k]+=m.receita;});
-      const lojaRank=Object.entries(lojaAgg).sort((a,b)=>b[1]-a[1]);
-      const totalV=lojaRank.reduce((s,e)=>s+e[1],0);
-      if(lojaRank.length>=2){
-        const topPct=totalV>0?(lojaRank[0][1]/totalV*100).toFixed(0):0;
-        add('info',`${lojaRank[0][0]} lidera com ${topPct}% da receita Varejo (${R(lojaRank[0][1])})`,`Top loja`,'neu');
-      }
-      // Stores with negative growth
-      if(period==='mes'&&!dpActive){
-        const mesAnt=D.current.mes_anterior;
-        const prevFiltered=mm.filter(m=>m.periodo===mesAnt);
-        if(!repIsAll()){/* already filtered above */}
-        const prevAgg={};prevFiltered.forEach(m=>{const k=m.loja_clean||'?';prevAgg[k]=(prevAgg[k]||0)+m.receita;});
-        let declining=0;
-        lojaRank.forEach(([loja,rec])=>{const prev=prevAgg[loja]||0;if(prev>0&&rec<prev*0.7)declining++;});
-        if(declining>=2) add('dn',`${declining} lojas com queda superior a 30% vs mes anterior`,`${declining} em queda`,'neg');
-      }
+      const mesAnt=D.current.mes_anterior;
+      const mxD = _maxDay();
+      // FAIR MoM por loja: pro-rata prev cheio pra dias do mês atual
+      let curRows = mm.filter(m=>m.periodo===mesA);
+      let prevRows = mm.filter(m=>m.periodo===mesAnt);
+      if(!repIsAll()){ curRows = curRows.filter(m=>repMatch(m.rep)); prevRows = prevRows.filter(m=>repMatch(m.rep)); }
+      curRows = curRows.filter(m=>!isIrrelevantRep(m.rep));
+      prevRows = prevRows.filter(m=>!isIrrelevantRep(m.rep));
+      const curAgg={}, prevAgg={};
+      curRows.forEach(m=>{const k=m.loja_clean||'?'; curAgg[k]=(curAgg[k]||0)+m.receita;});
+      prevRows.forEach(m=>{const k=m.loja_clean||'?'; prevAgg[k]=(prevAgg[k]||0)+m.receita;});
+      // Aplicar pro-rata em prevAgg
+      const dimAnt = _dimInMonth(mesAnt);
+      const fator = mxD / (dimAnt || 30);
+      Object.keys(prevAgg).forEach(k => { prevAgg[k] *= fator; });
+      let declining=0;
+      Object.entries(curAgg).forEach(([loja,rec])=>{const prev=prevAgg[loja]||0;if(prev>0&&rec<prev*0.7)declining++;});
+      if(declining>=2) add('dn',`${declining} lojas com queda superior a 30% vs mes anterior (mesmo periodo, ate dia ${mxD})`,`${declining} em queda`,'neg');
     }
   }
 
@@ -2706,14 +2704,7 @@ function generateInsights(tab){
       if(diff>0) add('up',`${diff} medico${diff>1?'s':''} a mais que no mes anterior (${prevMedSet.size} → ${curMedSet.size})`,`+${diff}`,'pos');
       else if(diff<0) add('dn',`${Math.abs(diff)} medico${Math.abs(diff)>1?'s':''} a menos que no mes anterior (${prevMedSet.size} → ${curMedSet.size})`,`${diff}`,'neg');
     }
-    // Top médico
-    const byM={};curRows.forEach(r=>{byM[r.medico]=(byM[r.medico]||0)+r.receita;});
-    const mRank=Object.entries(byM).sort((a,b)=>b[1]-a[1]);
-    const totalMed=mRank.reduce((s,e)=>s+e[1],0);
-    if(mRank.length>=2){
-      const topPct=totalMed>0?(mRank[0][1]/totalMed*100).toFixed(0):0;
-      add('info',`${mRank[0][0]} lidera com ${topPct}% da receita B2B (${R(mRank[0][1])})`,`Top medico`,'neu');
-    }
+    // Top médico — REMOVIDO (15/06/2026): descritivo. Driver §0 já cobre.
     // Inativos 90+
     const alertas=((D.current&&D.current.alertas)||[]).filter(a=>!isIrrelevantRep(a.representante));
     let inat90=alertas.filter(a=>a.tipo==='inativo_90');
@@ -3358,11 +3349,17 @@ function _buildHistorico(scope, canvasId, hintId, chartRefName){
     yoyStart = _shiftYear(dpStart, -1); yoyEnd = _shiftYear(dpEnd, -1);
     hintBase = formatDate(dpStart)+' – '+formatDate(dpEnd)+' · por '+(granularity==='day'?'dia':granularity==='week'?'semana':'mês');
   } else if(period === 'mes'){
+    // FAIR MoM: gráfico vai do dia 1 ao DIA ATUAL (data_referencia), e prev/yoy
+    // truncam no MESMO dia-do-mês — não mostra "buraco" de dias futuros.
     granularity = 'day';
     [curStart, curEnd] = _monthRange(c.mes_atual);
-    [prevStart, prevEnd] = _monthRange(_prevMonth(c.mes_atual));
-    [yoyStart, yoyEnd] = _monthRange(_prevYearMonth(c.mes_atual));
-    hintBase = fM(c.mes_atual)+' · por dia';
+    const dRefStr = c.data_referencia ? c.data_referencia.split('/').reverse().join('-') : curEnd;
+    curEnd = dRefStr;
+    const prevMonth = _prevMonth(c.mes_atual);
+    const yoyMonth  = _prevYearMonth(c.mes_atual);
+    prevStart = prevMonth+'-01'; prevEnd = prevMonth+'-'+dRefStr.slice(8);
+    yoyStart  = yoyMonth +'-01'; yoyEnd  = yoyMonth +'-'+dRefStr.slice(8);
+    hintBase = fM(c.mes_atual)+' · até dia '+parseInt(dRefStr.slice(8));
   } else if(period === 'semana'){
     granularity = 'day';
     [curStart, curEnd] = _weekRange(c.semana_atual);
@@ -3372,12 +3369,13 @@ function _buildHistorico(scope, canvasId, hintId, chartRefName){
     prevStart = ps.toISOString().slice(0,10); prevEnd = pe.toISOString().slice(0,10);
     yoyStart = _shiftYear(curStart, -1); yoyEnd = _shiftYear(curEnd, -1);
     hintBase = fW(c.semana_atual)+' · por dia';
-  } else { // total
+  } else { // total — Jan até HOJE (não até 31/Dez fictício)
     granularity = 'month';
-    curStart = '2026-01-01'; curEnd = '2026-12-31';
-    prevStart = '2025-01-01'; prevEnd = '2025-12-31';
-    yoyStart = '2024-01-01'; yoyEnd = '2024-12-31';
-    hintBase = 'acumulado · por mês';
+    const dRefStr = c.data_referencia ? c.data_referencia.split('/').reverse().join('-') : '2026-12-31';
+    curStart = '2026-01-01'; curEnd = dRefStr;
+    prevStart = '2025-01-01'; prevEnd = _shiftYear(dRefStr, -1);
+    yoyStart  = '2024-01-01'; yoyEnd  = _shiftYear(dRefStr, -2);
+    hintBase = 'acumulado Jan-'+fM(c.mes_atual).split('/')[0]+' · por mês';
   }
 
   // ── Categorias (split por canal/sub_canal conforme escopo) ─────────────────
@@ -5376,8 +5374,18 @@ function renderMedicosKPIs(){
     curRows=md.filter(r=>dayToWeek(r.data)===sem&&(repIsAll()||repMatch(r.rep)));
     prevRows=[];
   } else if(period==='mes'){
+    // FAIR MoM: prev = médicos diários do mês anterior truncado a maxDay, agregado
+    const mxD = _maxDay();
     curRows=mm.filter(r=>r.periodo===mesAtual&&(repIsAll()||repMatch(r.rep)));
-    prevRows=mm.filter(r=>r.periodo===mesAnt&&(repIsAll()||repMatch(r.rep)));
+    const prevDaily = md.filter(r => (r.data||'').startsWith(mesAnt) && parseInt((r.data||'').split('-')[2]||'0') <= mxD && (repIsAll()||repMatch(r.rep)));
+    const agg = {};
+    prevDaily.forEach(r => {
+      const k = (r.rep||'')+'|'+(r.medico||'');
+      if(!agg[k]) agg[k] = {rep:r.rep, medico:r.medico, receita:0, volume:0};
+      agg[k].receita += (r.receita||0);
+      agg[k].volume  += (r.volume||0);
+    });
+    prevRows = Object.values(agg);
   } else {
     curRows=mm.filter(r=>repIsAll()||repMatch(r.rep));
     prevRows=[];
@@ -5471,7 +5479,9 @@ function renderRankMedico(){
     const pe=dpEnd.replace(/^(\d{4})/,y=>''+(parseInt(y)-1));
     md.filter(r=>r.data>=ps&&r.data<=pe&&(repIsAll()||repMatch(r.rep))).forEach(addPrev);
   } else if(period==='mes'){
-    mm.filter(r=>r.periodo===mesAnt&&(repIsAll()||repMatch(r.rep))).forEach(addPrev);
+    // FAIR MoM: prev = médicos diários do mês anterior até maxDay
+    const mxD = _maxDay();
+    md.filter(r => (r.data||'').startsWith(mesAnt) && parseInt((r.data||'').split('-')[2]||'0') <= mxD && (repIsAll()||repMatch(r.rep))).forEach(addPrev);
   }
 
   const list=Object.values(byMedico);
@@ -5622,6 +5632,7 @@ function renderVarejoKPIs(){
     periodLabel = formatDate(dpStart) + ' \u2013 ' + formatDate(dpEnd);
   } else if(period === 'mes'){
     // Monthly: use matrix_monthly for current and previous month
+    // FAIR MoM: prev (mês cheio) escalado pra dia-atual via pro-rata
     matrixPeriod = mm.filter(m => m.periodo === mesAtual);
     matrixPrev = mm.filter(m => m.periodo === mesAnterior);
     if(!repIsAll()){
@@ -5633,9 +5644,9 @@ function renderVarejoKPIs(){
       matrixPrev = matrixPrev.filter(m => m.loja_clean === storeFilter);
     }
     receita = matrixPeriod.reduce((s,m) => s + m.receita, 0);
-    receitaPrev = matrixPrev.reduce((s,m) => s + m.receita, 0);
+    receitaPrev = _proRataPrev(matrixPrev.reduce((s,m) => s + m.receita, 0), mesAnterior);
     volume = matrixPeriod.reduce((s,m) => s + m.volume, 0);
-    volumePrev = matrixPrev.reduce((s,m) => s + m.volume, 0);
+    volumePrev = _proRataPrev(matrixPrev.reduce((s,m) => s + m.volume, 0), mesAnterior);
     vendasCount = matrixPeriod.reduce((s,m) => s + (m.vendas||0), 0);
     periodLabel = fM(mesAtual);
   } else if(period === 'semana'){
@@ -8148,27 +8159,35 @@ function renderB2BCS(){
     if(pVen>0) momVendas=((kpiVendas-pVen)/pVen*100).toFixed(1);
     if(pTkt>0) momTicket=((kpiTicket-pTkt)/pTkt*100).toFixed(1);
   } else if(period==='mes'){
+    // FAIR MoM: usa daily quando disponível pra truncar prev até maxDay
+    const mxD = _maxDay();
+    const dayCurAll  = (bc.daily||[]).filter(d => (d.dia||'').startsWith(mesAtual));
+    const dayPrevAll = (bc.daily||[]).filter(d => (d.dia||'').startsWith(mesAnterior) && parseInt((d.dia||'').split('-')[2]||'0') <= mxD);
+    const dayCurRep  = (bc.daily_by_rep||[]).filter(d => (d.dia||'').startsWith(mesAtual));
+    const dayPrevRep = (bc.daily_by_rep||[]).filter(d => (d.dia||'').startsWith(mesAnterior) && parseInt((d.dia||'').split('-')[2]||'0') <= mxD);
     const brm=(bc.by_rep_monthly||[]).filter(e=>e.periodo===mesAtual);
     const brmPrev=(bc.by_rep_monthly||[]).filter(e=>e.periodo===mesAnterior);
     if(repIsAll()){
-      kpiReceita=brm.reduce((s,r)=>s+r.receita,0);
-      kpiVendas=brm.reduce((s,r)=>s+r.vendas,0);
+      kpiReceita=dayCurAll.reduce((s,d)=>s+(d.receita||0),0);
+      kpiVendas =dayCurAll.reduce((s,d)=>s+(d.vendas||0),0);
       kpiProdutos=brm.reduce((s,r)=>s+(r.produtos||0),0);
-      const prevRec=brmPrev.reduce((s,r)=>s+r.receita,0);
-      const prevVen=brmPrev.reduce((s,r)=>s+r.vendas,0);
-      const prevProd=brmPrev.reduce((s,r)=>s+(r.produtos||0),0);
+      const prevRec=dayPrevAll.reduce((s,d)=>s+(d.receita||0),0);
+      const prevVen=dayPrevAll.reduce((s,d)=>s+(d.vendas||0),0);
+      const prevProd=_proRataPrev(brmPrev.reduce((s,r)=>s+(r.produtos||0),0), mesAnterior);
       if(prevRec>0) momPct=((kpiReceita-prevRec)/prevRec*100).toFixed(1);
       if(prevVen>0) momVendas=((kpiVendas-prevVen)/prevVen*100).toFixed(1);
       if(prevProd>0) momProdutos=((kpiProdutos-prevProd)/prevProd*100).toFixed(1);
     } else {
-      const sel=brm.filter(r=>repMatch(r.rep));
-      kpiReceita=sel.reduce((s,r)=>s+r.receita,0);
-      kpiVendas=sel.reduce((s,r)=>s+r.vendas,0);
-      kpiProdutos=sel.reduce((s,r)=>s+(r.produtos||0),0);
-      const selP=brmPrev.filter(r=>repMatch(r.rep));
-      const prevRec=selP.reduce((s,r)=>s+r.receita,0);
-      const prevProd=selP.reduce((s,r)=>s+(r.produtos||0),0);
+      const selCur=dayCurRep.filter(d=>repMatch(d.rep));
+      const selPrev=dayPrevRep.filter(d=>repMatch(d.rep));
+      kpiReceita=selCur.reduce((s,d)=>s+(d.receita||0),0);
+      kpiVendas =selCur.reduce((s,d)=>s+(d.vendas||0),0);
+      kpiProdutos=brm.filter(r=>repMatch(r.rep)).reduce((s,r)=>s+(r.produtos||0),0);
+      const prevRec=selPrev.reduce((s,d)=>s+(d.receita||0),0);
+      const prevVen=selPrev.reduce((s,d)=>s+(d.vendas||0),0);
+      const prevProd=_proRataPrev(brmPrev.filter(r=>repMatch(r.rep)).reduce((s,r)=>s+(r.produtos||0),0), mesAnterior);
       if(prevRec>0) momPct=((kpiReceita-prevRec)/prevRec*100).toFixed(1);
+      if(prevVen>0) momVendas=((kpiVendas-prevVen)/prevVen*100).toFixed(1);
       if(prevProd>0) momProdutos=((kpiProdutos-prevProd)/prevProd*100).toFixed(1);
     }
     kpiTicket=kpiVendas>0?kpiReceita/kpiVendas:0;
@@ -9094,16 +9113,16 @@ function renderB2BTotal(){
     prevFarm=farmDailyFiltered(ps,pe).reduce((s,d)=>s+d.receita,0);
 
   } else if(period==='mes'){
-    // ── THIS MONTH — use monthly_by_canal_rep for accurate Concierge/Site split ──
+    // ── THIS MONTH — FAIR MoM: prev escalado pra dia-atual do mês corrente ──
+    // (fontes são mensais agregadas, então usamos _proRataPrev)
     const mbcr=bc.monthly_by_canal_rep||[];
     const repFilt = r => repIsAll() || repMatch(r.rep);
     recConc=mbcr.filter(r=>r.periodo===mesAtual&&r.canal==='Concierge'&&repFilt(r)).reduce((s,r)=>s+r.receita,0);
     recSite=mbcr.filter(r=>r.periodo===mesAtual&&r.canal==='Site'&&repFilt(r)).reduce((s,r)=>s+r.receita,0);
-    prevConc=mbcr.filter(r=>r.periodo===mesAnterior&&r.canal==='Concierge'&&repFilt(r)).reduce((s,r)=>s+r.receita,0);
-    prevSite=mbcr.filter(r=>r.periodo===mesAnterior&&r.canal==='Site'&&repFilt(r)).reduce((s,r)=>s+r.receita,0);
-    // Farmácias
+    prevConc=_proRataPrev(mbcr.filter(r=>r.periodo===mesAnterior&&r.canal==='Concierge'&&repFilt(r)).reduce((s,r)=>s+r.receita,0), mesAnterior);
+    prevSite=_proRataPrev(mbcr.filter(r=>r.periodo===mesAnterior&&r.canal==='Site'&&repFilt(r)).reduce((s,r)=>s+r.receita,0), mesAnterior);
     recFarm=farmMonthlyFiltered(mesAtual).reduce((s,r)=>s+r.receita,0);
-    prevFarm=farmMonthlyFiltered(mesAnterior).reduce((s,r)=>s+r.receita,0);
+    prevFarm=_proRataPrev(farmMonthlyFiltered(mesAnterior).reduce((s,r)=>s+r.receita,0), mesAnterior);
     kpiLabel=fM(mesAtual);
 
   } else if(period==='semana'){
@@ -9156,12 +9175,13 @@ function renderB2BTotal(){
     const farmVp=vmAll.filter(m=>m.periodo>=psM&&m.periodo<=peM&&rpF2(m));
     prevVendasBT=bcsVp.reduce((s,d)=>s+d.vendas,0)+farmVp.reduce((s,m)=>s+(m.vendas||0),0);
   } else if(period==='mes'){
+    // FAIR MoM: pro-rata prev mensal pra mesmos dias do mês atual
     const bcsM=bcByRepMonthly2.filter(r=>r.periodo===mesAtual&&rpF2(r));
     const farmM=vmAll.filter(m=>m.periodo===mesAtual&&rpF2(m));
     vendasBT=bcsM.reduce((s,r)=>s+r.vendas,0)+farmM.reduce((s,m)=>s+(m.vendas||0),0);
     const bcsMp=bcByRepMonthly2.filter(r=>r.periodo===mesAnterior&&rpF2(r));
     const farmMp=vmAll.filter(m=>m.periodo===mesAnterior&&rpF2(m));
-    prevVendasBT=bcsMp.reduce((s,r)=>s+r.vendas,0)+farmMp.reduce((s,m)=>s+(m.vendas||0),0);
+    prevVendasBT=_proRataPrev(bcsMp.reduce((s,r)=>s+r.vendas,0)+farmMp.reduce((s,m)=>s+(m.vendas||0),0), mesAnterior);
   } else if(period==='semana'){
     const bcsW=bcWeeklyRep2.filter(r=>r.semana===semAtual&&rpF2(r));
     vendasBT=bcsW.reduce((s,r)=>s+r.vendas,0);
@@ -9547,15 +9567,19 @@ function renderConcierge(){
     _concKpi(vtCur,vtPrev,skCur,skPrev,[cwCur],[cwPrev]);
     kpiLabel=fW(sem);
   } else if(period==='mes'){
+    // FAIR MoM: jun-26 (1-15) vs mai-26 (1-15 — truncado ao mesmo dia)
+    const mxD = _maxDay();
     vtCur=vtDaily.filter(r=>r.data.startsWith(mesAtual));
-    vtPrev=vtDaily.filter(r=>r.data.startsWith(mesAnterior));
+    vtPrev=vtDaily.filter(r=>r.data.startsWith(mesAnterior) && parseInt((r.data||'').split('-')[2]||'0') <= mxD);
     skCur=vtSku.filter(r=>r.dia.startsWith(mesAtual));
-    skPrev=vtSku.filter(r=>r.dia.startsWith(mesAnterior));
+    skPrev=vtSku.filter(r=>r.dia.startsWith(mesAnterior) && parseInt((r.dia||'').split('-')[2]||'0') <= mxD);
     if(!repIsAll()){vtCur=vtCur.filter(r=>repMatch(r.rep));vtPrev=vtPrev.filter(r=>repMatch(r.rep));skCur=skCur.filter(r=>repMatch(r.rep));skPrev=skPrev.filter(r=>repMatch(r.rep));kpiConvIsGlobal=true;}
     const concMonthlyConv=(concConv.monthly||[]);
     const mCur=concMonthlyConv.find(m=>m.periodo===mesAtual)||{contatos:0,vendas:0};
     const mPrev=concMonthlyConv.find(m=>m.periodo===mesAnterior)||{contatos:0,vendas:0};
-    _concKpi(vtCur,vtPrev,skCur,skPrev,[mCur],[mPrev]);
+    // Pro-rata conv mensal (contatos/vendas) — fonte é mês cheio
+    const mPrevAdj = {contatos:_proRataPrev(mPrev.contatos||0, mesAnterior), vendas:_proRataPrev(mPrev.vendas||0, mesAnterior)};
+    _concKpi(vtCur,vtPrev,skCur,skPrev,[mCur],[mPrevAdj]);
     kpiLabel=fM(mesAtual);
   } else {
     vtCur=vtDaily; skCur=vtSku;
